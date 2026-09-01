@@ -1,1 +1,0 @@
-LOGO_B64 = "" + "PLACEHOLDER" + ""
