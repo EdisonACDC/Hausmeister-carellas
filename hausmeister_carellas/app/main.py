@@ -97,6 +97,13 @@ def set_setting(key: str, value: str):
     con.close()
 
 
+def delete_setting(key: str):
+    con = db()
+    con.execute('DELETE FROM settings WHERE key=?', (key,))
+    con.commit()
+    con.close()
+
+
 def serializer():
     if not SECRET_PATH.exists():
         SECRET_PATH.write_text(secrets.token_urlsafe(48))
@@ -108,7 +115,24 @@ def public_base_url():
 
 
 def page(title: str, body: str):
-    return f'''<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6f8;margin:0;color:#17212b}}main{{max-width:900px;margin:0 auto;padding:18px}}.card{{background:white;border-radius:16px;padding:18px;margin:12px 0;box-shadow:0 2px 12px #00000012}}h1,h2{{margin-top:0}}input,textarea,select{{width:100%;box-sizing:border-box;padding:12px;margin:6px 0 14px;border:1px solid #cbd5df;border-radius:10px;font-size:16px}}button,.btn{{display:inline-block;border:0;border-radius:10px;padding:12px 16px;background:#1976d2;color:white;text-decoration:none;font-weight:600;cursor:pointer}}.muted{{color:#65727e;font-size:14px}}table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:10px;border-bottom:1px solid #e6ebef}}.pill{{display:inline-block;padding:4px 9px;border-radius:999px;background:#edf2f7}}img.qr{{width:220px;max-width:100%}}</style></head><body><main>{body}</main></body></html>'''
+    back = '<button type="button" class="back-btn" onclick="history.back()">← Indietro</button>'
+    return f'''<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>
+body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6f8;margin:0;color:#17212b}}
+main{{max-width:900px;margin:0 auto;padding:18px}}
+.nav{{display:flex;align-items:center;gap:10px;margin:0 0 12px}}
+.card{{background:white;border-radius:16px;padding:18px;margin:12px 0;box-shadow:0 2px 12px #00000012}}
+h1,h2{{margin-top:0}}
+input,textarea,select{{width:100%;box-sizing:border-box;padding:12px;margin:6px 0 14px;border:1px solid #cbd5df;border-radius:10px;font-size:16px}}
+button,.btn{{display:inline-block;border:0;border-radius:10px;padding:12px 16px;background:#1976d2;color:white;text-decoration:none;font-weight:600;cursor:pointer}}
+.back-btn{{background:#5f6b76}}
+.danger{{background:#b3261e}}
+.inline{{display:inline-block;margin-right:8px}}
+.muted{{color:#65727e;font-size:14px}}
+table{{width:100%;border-collapse:collapse}}
+th,td{{text-align:left;padding:10px;border-bottom:1px solid #e6ebef}}
+.pill{{display:inline-block;padding:4px 9px;border-radius:999px;background:#edf2f7}}
+img.qr{{width:220px;max-width:100%}}
+</style></head><body><main><div class="nav">{back}</div>{body}</main></body></html>'''
 
 
 def session_zone(request: Request, token: str):
@@ -133,10 +157,19 @@ def admin_home():
     zones = con.execute('SELECT * FROM zones ORDER BY name').fetchall()
     tickets = con.execute('SELECT t.*, z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id ORDER BY t.id DESC LIMIT 50').fetchall()
     con.close()
-    zone_rows = ''.join(f'<tr><td>{z["name"]}</td><td>{"Attiva" if z["active"] else "Disattivata"}</td><td><a class="btn" href="zone/{z["id"]}">QR</a></td></tr>' for z in zones) or '<tr><td colspan="3">Nessuna zona</td></tr>'
+    zone_rows = ''.join(f'<tr><td>{z["name"]}</td><td>{"Attiva" if z["active"] else "Disattivata"}</td><td><a class="btn" href="zone/{z["id"]}">Apri / QR</a></td></tr>' for z in zones) or '<tr><td colspan="3">Nessuna zona</td></tr>'
     ticket_rows = ''.join(f'<tr><td><a href="ticket/{t["id"]}">{t["ticket_code"]}</a></td><td>{t["zone_name"]}</td><td>{t["reporter_name"]}</td><td><span class="pill">{t["status"]}</span></td></tr>' for t in tickets) or '<tr><td colspan="4">Nessun ticket</td></tr>'
-    pin_state = 'Configurato' if get_setting('pin_hash') else 'NON configurato'
-    return page('Hausmeister Carellas', f'''<div class="card"><h1>Hausmeister Carellas</h1><p>Gestione manutenzioni</p><p><b>PIN pubblico:</b> {pin_state}</p></div><div class="card"><h2>Crea zona</h2><form method="post" action="zone"><label>Nome zona</label><input name="name" required placeholder="Es. Cucina, Camera 7"><button>Crea zona e QR</button></form></div><div class="card"><h2>PIN condiviso</h2><form method="post" action="pin"><input type="password" name="pin" minlength="6" required placeholder="Nuovo PIN"><button>Salva PIN</button></form><p class="muted">Il PIN viene salvato nel database solo come hash Argon2.</p></div><div class="card"><h2>Zone</h2><table><tr><th>Zona</th><th>Stato</th><th></th></tr>{zone_rows}</table></div><div class="card"><h2>Ticket recenti</h2><table><tr><th>ID</th><th>Zona</th><th>Segnalato da</th><th>Stato</th></tr>{ticket_rows}</table></div>''')
+    pin_configured = bool(get_setting('pin_hash'))
+    pin_state = 'Configurato' if pin_configured else 'NON configurato'
+    pin_button = 'Modifica PIN' if pin_configured else 'Imposta PIN'
+    delete_pin = '''<form class="inline" method="post" action="pin/delete" onsubmit="return confirm('Vuoi davvero eliminare il PIN condiviso? Il portale pubblico resterà bloccato finché non ne imposti uno nuovo.');"><button class="danger" type="submit">Elimina PIN</button></form>''' if pin_configured else ''
+    return page('Hausmeister Carellas', f'''
+    <div class="card"><h1>Hausmeister Carellas</h1><p>Gestione manutenzioni</p><p><b>PIN pubblico:</b> {pin_state}</p></div>
+    <div class="card"><h2>Crea zona</h2><form method="post" action="zone"><label>Nome zona</label><input name="name" required placeholder="Es. Cucina, Camera 7"><button>Crea zona e QR</button></form></div>
+    <div class="card"><h2>PIN condiviso</h2><p class="muted">Puoi impostare un nuovo PIN in qualsiasi momento. Il precedente verrà sostituito.</p><form method="post" action="pin"><input type="password" name="pin" minlength="6" required placeholder="Nuovo PIN"><button type="submit">{pin_button}</button></form>{delete_pin}<p class="muted">Il PIN non viene salvato in chiaro: nel database resta solo l'hash Argon2.</p></div>
+    <div class="card"><h2>Zone</h2><table><tr><th>Zona</th><th>Stato</th><th></th></tr>{zone_rows}</table></div>
+    <div class="card"><h2>Ticket recenti</h2><table><tr><th>ID</th><th>Zona</th><th>Segnalato da</th><th>Stato</th></tr>{ticket_rows}</table></div>
+    ''')
 
 
 @admin_app.post('/zone')
@@ -155,10 +188,17 @@ def create_zone(name: str = Form(...)):
 
 @admin_app.post('/pin')
 def save_pin(pin: str = Form(...)):
+    pin = pin.strip()
     if len(pin) < 6:
-        raise HTTPException(400, 'PIN troppo corto')
+        raise HTTPException(400, 'PIN troppo corto: minimo 6 caratteri')
     set_setting('pin_hash', argon2.hash(pin))
     return RedirectResponse('./', status_code=303)
+
+
+@admin_app.post('/pin/delete')
+def remove_pin():
+    delete_setting('pin_hash')
+    return RedirectResponse('../', status_code=303)
 
 
 @admin_app.get('/zone/{zone_id}', response_class=HTMLResponse)
@@ -171,7 +211,7 @@ def zone_detail(zone_id: int):
     base = public_base_url()
     url = f'{base}/r/{zone["token"]}' if base else f'/r/{zone["token"]}'
     warning = '' if base else '<p><b>Attenzione:</b> imposta public_base_url nelle opzioni add-on prima di stampare il QR definitivo.</p>'
-    return page(zone['name'], f'''<div class="card"><a href="../">← Indietro</a><h1>{zone["name"]}</h1>{warning}<p class="muted">{url}</p><img class="qr" src="{zone_id}/qr"><p><a class="btn" href="{zone_id}/qr">Apri QR</a></p></div>''')
+    return page(zone['name'], f'''<div class="card"><h1>{zone["name"]}</h1>{warning}<p class="muted">{url}</p><img class="qr" src="{zone_id}/qr"><p><a class="btn" href="{zone_id}/qr">Apri QR</a></p></div>''')
 
 
 @admin_app.get('/zone/{zone_id}/qr')
@@ -199,7 +239,7 @@ def ticket_detail(ticket_id: int):
     if not t:
         raise HTTPException(404)
     photos = ''.join(f'<li>{f["original_name"]}</li>' for f in files) or '<li>Nessuna foto</li>'
-    return page(t['ticket_code'], f'''<div class="card"><a href="../">← Indietro</a><h1>{t["ticket_code"]}</h1><p><b>Zona:</b> {t["zone_name"]}</p><p><b>Segnalato da:</b> {t["reporter_name"]}</p><p><b>Categoria:</b> {t["category"]}</p><p><b>Stato:</b> {t["status"]}</p><h2>Descrizione originale</h2><p>{t["description_original"]}</p><h2>Traduzione italiana</h2><p>{t["description_it"] or "In attesa"}</p><h2>Foto</h2><ul>{photos}</ul></div>''')
+    return page(t['ticket_code'], f'''<div class="card"><h1>{t["ticket_code"]}</h1><p><b>Zona:</b> {t["zone_name"]}</p><p><b>Segnalato da:</b> {t["reporter_name"]}</p><p><b>Categoria:</b> {t["category"]}</p><p><b>Stato:</b> {t["status"]}</p><h2>Descrizione originale</h2><p>{t["description_original"]}</p><h2>Traduzione italiana</h2><p>{t["description_it"] or "In attesa"}</p><h2>Foto</h2><ul>{photos}</ul></div>''')
 
 
 @public_app.get('/health')
