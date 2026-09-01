@@ -1,5 +1,14 @@
-ARG BUILD_FROM
-FROM ${BUILD_FROM}
+FROM ghcr.io/home-assistant/base:latest
+
+ARG BUILD_VERSION=0.1.0
+ARG BUILD_ARCH
+
+LABEL \
+  io.hass.name="Hausmeister Carellas" \
+  io.hass.description="Gestione segnalazioni manutenzione con zone e QR" \
+  io.hass.version="${BUILD_VERSION}" \
+  io.hass.type="app" \
+  io.hass.arch="${BUILD_ARCH}"
 
 RUN apk add --no-cache python3 py3-pip
 WORKDIR /app
