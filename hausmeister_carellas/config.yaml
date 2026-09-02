@@ -1,5 +1,5 @@
 name: Hausmeister Carellas
-version: "0.1.3"
+version: "1.0.0"
 slug: hausmeister_carellas
 description: Gestione segnalazioni di manutenzione con zone, QR code e portale pubblico
 url: https://github.com/EdisonACDC/Hausmeister-carellas
@@ -23,6 +23,10 @@ map:
 options:
   public_base_url: ""
   notify_service: ""
+  translation_url: ""
+  translation_api_key: ""
 schema:
   public_base_url: str
   notify_service: str
+  translation_url: str
+  translation_api_key: password
