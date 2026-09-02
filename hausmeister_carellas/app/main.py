@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.0.2'
+APP_VERSION = '1.1.0'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -93,6 +93,7 @@ def init_db():
         ('updated_at', 'TEXT', None),
         ('resolution_notes', 'TEXT', None),
         ('priority', 'TEXT', "'Normale'"),
+        ('description_de', 'TEXT', None),
     ):
         if name not in columns:
             default_sql = f' DEFAULT {default}' if default else ''
@@ -161,12 +162,12 @@ def notify_home_assistant(message: str, title: str = 'Hausmeister Carellas'):
         return False, f'Errore notifica: {exc}'
 
 
-def translate_to_italian(text: str):
+def translate_text(text: str, target: str):
     options = load_options()
     endpoint = (options.get('translation_url') or '').strip()
     if not endpoint:
         return None, 'pending'
-    payload = {'q': text, 'source': 'auto', 'target': 'it', 'format': 'text'}
+    payload = {'q': text, 'source': 'auto', 'target': target, 'format': 'text'}
     api_key = (options.get('translation_api_key') or '').strip()
     if api_key:
         payload['api_key'] = api_key
@@ -183,6 +184,20 @@ def translate_to_italian(text: str):
 def public_url_for(zone):
     base = public_base_url()
     return f'{base}/r/{zone["token"]}' if base else f'/r/{zone["token"]}'
+
+
+def group_token():
+    token = get_setting('group_token')
+    if not token:
+        token = secrets.token_urlsafe(18)
+        set_setting('group_token', token)
+    return token
+
+
+def group_public_url():
+    base = public_base_url()
+    token = group_token()
+    return f'{base}/g/{token}' if base else f'/g/{token}'
 
 
 def brand_logo():
@@ -221,7 +236,7 @@ def session_zone(request: Request, token: str):
         return False
     try:
         data = serializer().loads(cookie, max_age=86400)
-        return data.get('zone') == token
+        return data.get('zone') == token or data.get('group') == group_token()
     except BadSignature:
         return False
 
@@ -254,31 +269,9 @@ async def public_headers(request: Request, call_next):
 def admin_home():
     con = db()
     zones = con.execute('SELECT * FROM zones ORDER BY name').fetchall()
-    tickets = con.execute('SELECT t.*, z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id ORDER BY t.id DESC LIMIT 50').fetchall()
-    counts = {row['status']: row['n'] for row in con.execute('SELECT status, COUNT(*) n FROM tickets GROUP BY status').fetchall()}
-    total = con.execute('SELECT COUNT(*) n FROM tickets').fetchone()['n']
     con.close()
-    open_count = counts.get('Nuovo', 0)
-    work_count = counts.get('Preso in carico', 0) + counts.get('In lavorazione', 0)
-    done_count = counts.get('Risolto', 0)
     zone_rows = ''.join(f'<div class="zone-row"><div><b>{esc(z["name"])}</b><br><span class="muted">{"Attiva" if z["active"] else "Disattivata"}</span></div><a class="btn" href="zone/{z["id"]}">QR →</a></div>' for z in zones) or '<p class="muted">Nessuna zona</p>'
-    ticket_rows = ''.join(f'<tr><td><a href="ticket/{t["id"]}"><b>{esc(t["ticket_code"])}</b></a></td><td>{esc(t["zone_name"])}</td><td>{esc(t["reporter_name"])}</td><td><span class="pill {"done" if t["status"] == "Risolto" else "open"}">{esc(t["status"])}</span></td></tr>' for t in tickets) or '<tr><td colspan="4">Nessun ticket</td></tr>'
-    pin_configured = bool(get_setting('pin_hash'))
-    pin_state = 'Configurato' if pin_configured else 'NON configurato'
-    pin_button = 'Modifica PIN' if pin_configured else 'Imposta PIN'
-    delete_pin = '''<form class="inline" method="post" action="pin/delete" onsubmit="return confirm('Vuoi davvero eliminare il PIN condiviso? Il portale pubblico resterà bloccato finché non ne imposti uno nuovo.');"><button class="danger" type="submit">Elimina PIN</button></form>''' if pin_configured else ''
-    return page('Dashboard', f'''
-    <div class="grid">
-      <div class="card span-3"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">Totale ticket</span><strong>{total}</strong></div></div></div>
-      <div class="card span-3"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">Aperti</span><strong>{open_count}</strong></div></div></div>
-      <div class="card span-3"><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">In lavorazione</span><strong>{work_count}</strong></div></div></div>
-      <div class="card span-3"><div class="metric"><div class="metric-icon">✓</div><div><span class="muted">Risolti</span><strong>{done_count}</strong></div></div></div>
-      <div class="card span-8"><h2>Ticket recenti</h2><div class="table-wrap"><table><tr><th>ID</th><th>Zona</th><th>Segnalato da</th><th>Stato</th></tr>{ticket_rows}</table></div><p><a class="btn" href="tickets">Vedi tutti i ticket</a></p></div>
-      <div class="span-4 grid" style="grid-template-columns:1fr">
-        <div class="card span-12"><h2>Zone</h2>{zone_rows}<hr style="border:0;border-top:1px solid var(--line);margin:15px 0"><form method="post" action="zone"><label>Nuova zona</label><input name="name" required placeholder="Es. Cucina, Camera 7"><button>Crea zona e QR</button></form></div>
-        <div class="card span-12"><h2>PIN di accesso</h2><p><b>{pin_state}</b></p><form method="post" action="pin"><input type="password" name="pin" minlength="6" required placeholder="Nuovo PIN"><div class="actions"><button type="submit">{pin_button}</button>{delete_pin}</div></form><p class="muted">Nel database viene salvato solo l'hash Argon2.</p></div>
-      </div>
-    </div>''')
+    return page('Dashboard', f'''<div class="grid"><div class="card span-12"><h2>Zone</h2>{zone_rows}</div></div>''')
 
 
 @admin_app.get('/tickets', response_class=HTMLResponse)
@@ -306,11 +299,11 @@ def tickets_page(q: str = '', status: str = '', message: str = ''):
 def tickets_export():
     import csv
     con = db()
-    rows = con.execute('''SELECT t.ticket_code,z.name,t.reporter_name,t.category,t.priority,t.status,t.description_original,t.description_it,t.resolution_notes,t.created_at,t.updated_at FROM tickets t JOIN zones z ON z.id=t.zone_id ORDER BY t.id DESC''').fetchall()
+    rows = con.execute('''SELECT t.ticket_code,z.name,t.reporter_name,t.category,t.priority,t.status,t.description_original,t.description_it,t.description_de,t.resolution_notes,t.created_at,t.updated_at FROM tickets t JOIN zones z ON z.id=t.zone_id ORDER BY t.id DESC''').fetchall()
     con.close()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['Ticket', 'Zona', 'Segnalato da', 'Categoria', 'Priorità', 'Stato', 'Descrizione', 'Traduzione IT', 'Note', 'Creato', 'Aggiornato'])
+    writer.writerow(['Ticket', 'Zona', 'Segnalato da', 'Categoria', 'Priorità', 'Stato', 'Descrizione originale', 'Traduzione IT', 'Übersetzung DE', 'Note', 'Creato', 'Aggiornato'])
     writer.writerows([list(row) for row in rows])
     return StreamingResponse(iter([output.getvalue().encode('utf-8-sig')]), media_type='text/csv', headers={'Content-Disposition': 'attachment; filename="ticket-carellas.csv"'})
 
@@ -334,8 +327,8 @@ def zones_page():
     con = db()
     zones = con.execute('SELECT z.*, COUNT(t.id) ticket_count FROM zones z LEFT JOIN tickets t ON t.zone_id=z.id GROUP BY z.id ORDER BY z.name').fetchall()
     con.close()
-    rows = ''.join(f'''<tr><td><a href="zone/{z['id']}"><b>{esc(z['name'])}</b></a></td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class="btn" href="zone/{z['id']}">Apri QR</a></td></tr>''' for z in zones) or '<tr><td colspan="4">Nessuna zona</td></tr>'
-    return page('Zone / QR', f'''<div class="grid"><div class="card span-8"><div class="table-wrap"><table><tr><th>Zona</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2><form method="post" action="zone"><label>Nome</label><input name="name" maxlength="80" required placeholder="Es. Cucina"><button>Crea zona e QR</button></form></div></div>''')
+    rows = ''.join(f'''<tr><td><b>{esc(z['name'])}</b></td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class="btn" href="zone/{z['id']}">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan="4">Nessuna zona</td></tr>'
+    return page('Zone / QR', f'''<div class="grid"><div class="card span-8"><h2>Zone esistenti</h2><div class="table-wrap"><table><tr><th>Zona</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2><form method="post" action="zone"><label>Nome</label><input name="name" maxlength="80" required placeholder="Es. Cucina"><button>Crea zona e QR</button></form></div></div>''')
 
 
 @admin_app.post('/pin')
@@ -344,24 +337,52 @@ def save_pin(pin: str = Form(...)):
     if len(pin) < 6:
         raise HTTPException(400, 'PIN troppo corto: minimo 6 caratteri')
     set_setting('pin_hash', argon2.hash(pin))
-    return RedirectResponse('./', status_code=303)
+    set_setting('pin_plain', pin)
+    return RedirectResponse('settings', status_code=303)
 
 
 @admin_app.post('/pin/delete')
 def remove_pin():
     delete_setting('pin_hash')
+    delete_setting('pin_plain')
     return RedirectResponse('../', status_code=303)
+
+
+@admin_app.post('/settings/group-pin')
+def save_group_pin(pin: str = Form(...)):
+    pin = pin.strip()
+    if len(pin) < 6:
+        raise HTTPException(400, 'PIN di gruppo troppo corto: minimo 6 caratteri')
+    set_setting('group_pin_hash', argon2.hash(pin))
+    set_setting('group_pin_plain', pin)
+    group_token()
+    return RedirectResponse('../settings', status_code=303)
 
 
 @admin_app.get('/settings', response_class=HTMLResponse)
 def settings_page(message: str = ''):
     options = load_options()
-    pin_state = 'Configurato' if get_setting('pin_hash') else 'NON configurato'
+    pin_plain = get_setting('pin_plain', '')
+    pin_hint = '' if pin_plain else ('Il vecchio PIN è protetto e non recuperabile: salvalo nuovamente una sola volta per renderlo visibile.' if get_setting('pin_hash') else 'Imposta il PIN per i QR delle singole zone.')
+    group_pin = get_setting('group_pin_plain', '')
+    group_url = group_public_url()
     base = options.get('public_base_url') or 'Non configurato'
     notify = options.get('notify_service') or 'Non configurato'
     translation = options.get('translation_url') or 'Non configurata (inserimento manuale disponibile)'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Servizio notifiche:</b><br>{esc(notify)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">Questi valori si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p><form method="post" action="settings/test-notification"><button>Invia notifica di prova</button></form></div><div class="card span-6"><h2>PIN condiviso</h2><p><b>{pin_state}</b></p><form method="post" action="pin"><label>Nuovo PIN (minimo 6 caratteri)</label><input type="password" name="pin" minlength="6" required><button>Salva nuovo PIN</button></form><p class="muted">Il PIN non può essere recuperato: si può soltanto sostituire. Le sessioni già aperte scadono dopo 24 ore.</p></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
+    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>PIN zone singole</h2><p class="muted">Usato dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>PIN salvato</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" autocomplete="off" required placeholder="Inserisci nuovamente il PIN"><button>Salva PIN zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>PIN QR di gruppo</h2><p class="muted">È diverso dal PIN delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>PIN di gruppo salvato</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" autocomplete="off" required placeholder="Crea il PIN di gruppo"><button>Salva PIN di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva il PIN di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Servizio notifiche:</b><br>{esc(notify)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">Questi valori si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p><form method="post" action="settings/test-notification"><button>Invia notifica di prova</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
+
+
+@admin_app.get('/settings/group-qr')
+def group_qr(download: int = 0):
+    if not get_setting('group_pin_hash'):
+        raise HTTPException(409, 'Prima configura il PIN di gruppo')
+    image = qrcode.make(group_public_url())
+    buffer = io.BytesIO()
+    image.save(buffer, format='PNG')
+    buffer.seek(0)
+    disposition = 'attachment' if download else 'inline'
+    return StreamingResponse(buffer, media_type='image/png', headers={'Content-Disposition': f'{disposition}; filename="qr-tutte-le-zone.png"'})
 
 
 @admin_app.post('/settings/test-notification')
@@ -388,13 +409,51 @@ def backup_data():
 def zone_detail(zone_id: int):
     con = db()
     zone = con.execute('SELECT * FROM zones WHERE id=?', (zone_id,)).fetchone()
+    ticket_count = con.execute('SELECT COUNT(*) n FROM tickets WHERE zone_id=?', (zone_id,)).fetchone()['n']
     con.close()
     if not zone:
         raise HTTPException(404)
     url = public_url_for(zone)
     warning = '' if public_base_url() else '<div class="notice warning"><b>Attenzione:</b> imposta public_base_url nelle opzioni add-on prima di stampare il QR definitivo.</div>'
     active_label = 'Disattiva zona' if zone['active'] else 'Attiva zona'
-    return page(zone['name'], f'''<div class="grid"><div class="card span-12"><h2>{esc(zone["name"])}</h2>{warning}<p><a href="{esc(url)}" target="_blank">{esc(url)}</a></p><img class="qr" src="{zone_id}/qr"><div class="actions" style="margin-top:12px"><a class="btn" href="{zone_id}/qr?download=1">Scarica QR</a><button onclick="window.print()">Stampa</button><form method="post" action="{zone_id}/toggle"><button type="submit">{active_label}</button></form><form method="post" action="{zone_id}/regenerate" onsubmit="return confirm('Il vecchio QR smetterà subito di funzionare. Continuare?')"><button class="danger" type="submit">Rigenera QR</button></form></div></div></div>''')
+    delete_message = esc(f'Eliminare definitivamente la zona {zone["name"]}, i suoi {ticket_count} ticket e tutte le foto?')
+    return page(zone['name'], f'''<div class="grid"><div class="card span-7"><h2>{esc(zone["name"])}</h2>{warning}<p><a href="{esc(url)}" target="_blank">{esc(url)}</a></p><img class="qr" src="{zone_id}/qr"><div class="actions" style="margin-top:12px"><a class="btn" href="{zone_id}/qr?download=1">Scarica QR</a><button onclick="window.print()">Stampa</button><form method="post" action="{zone_id}/toggle"><button type="submit">{active_label}</button></form><form method="post" action="{zone_id}/regenerate" onsubmit="return confirm('Il vecchio QR smetterà subito di funzionare. Continuare?')"><button class="danger" type="submit">Rigenera QR</button></form></div></div><div class="card span-5"><h2>Modifica zona</h2><form method="post" action="{zone_id}/rename"><label>Nome della zona</label><input name="name" value="{esc(zone['name'])}" maxlength="80" required><button>Salva nome</button></form><hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h2>Elimina zona</h2><p class="muted">Ticket collegati: {ticket_count}. Eliminando la zona saranno eliminati anche i suoi ticket e tutte le fotografie.</p><form method="post" action="{zone_id}/delete" data-confirm="{delete_message}" onsubmit="return confirm(this.dataset.confirm)"><button class="danger">Elimina zona</button></form></div></div>''')
+
+
+@admin_app.post('/zone/{zone_id}/rename')
+def zone_rename(zone_id: int, name: str = Form(...)):
+    name = name.strip()
+    if not name or len(name) > 80:
+        raise HTTPException(400, 'Nome zona non valido')
+    con = db()
+    con.execute('UPDATE zones SET name=? WHERE id=?', (name, zone_id))
+    con.commit()
+    con.close()
+    return RedirectResponse(f'../{zone_id}', status_code=303)
+
+
+@admin_app.post('/zone/{zone_id}/delete')
+def zone_delete(zone_id: int):
+    con = db()
+    zone = con.execute('SELECT name FROM zones WHERE id=?', (zone_id,)).fetchone()
+    if not zone:
+        con.close()
+        raise HTTPException(404, 'Zona non trovata')
+    files = con.execute('''SELECT f.stored_name FROM ticket_files f JOIN tickets t ON t.id=f.ticket_id WHERE t.zone_id=?''', (zone_id,)).fetchall()
+    con.execute('DELETE FROM ticket_files WHERE ticket_id IN (SELECT id FROM tickets WHERE zone_id=?)', (zone_id,))
+    con.execute('DELETE FROM tickets WHERE zone_id=?', (zone_id,))
+    con.execute('DELETE FROM zones WHERE id=?', (zone_id,))
+    con.commit()
+    con.close()
+    upload_root = UPLOAD_DIR.resolve()
+    for row in files:
+        path = (UPLOAD_DIR / row['stored_name']).resolve()
+        if path.parent == upload_root and path.is_file():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    return RedirectResponse('../../zones', status_code=303)
 
 
 @admin_app.post('/zone/{zone_id}/toggle')
@@ -446,7 +505,7 @@ def ticket_detail(ticket_id: int):
     if t['status'] == 'Risolto':
         photo_text = f' e le sue {len(files)} foto' if files else ''
         delete_form = f'''<hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h2>Elimina ticket</h2><p class="muted">Questa operazione libera spazio ma non può essere annullata.</p><form method="post" action="{ticket_id}/delete" onsubmit="return confirm('Eliminare definitivamente il ticket {esc(t['ticket_code'])}{photo_text}?')"><button class="danger" type="submit">Elimina ticket e foto</button></form>'''
-    return page(t['ticket_code'], f'''<div class="grid"><div class="card span-7"><h2>{esc(t["ticket_code"])}</h2><p><b>Zona:</b> {esc(t["zone_name"])}</p><p><b>Segnalato da:</b> {esc(t["reporter_name"])}</p><p><b>Categoria:</b> {esc(t["category"])}</p><h3>Descrizione originale</h3><p style="white-space:pre-wrap">{esc(t["description_original"])}</p><h3>Traduzione italiana</h3><p style="white-space:pre-wrap">{esc(t["description_it"] or "In attesa")}</p><form method="post" action="{ticket_id}/translation"><label>Correggi/inserisci traduzione</label><textarea name="description_it" maxlength="4000">{esc(t["description_it"] or "")}</textarea><button>Salva traduzione</button></form></div><div class="card span-5"><h2>Gestione</h2><form method="post" action="{ticket_id}/update"><label>Stato</label><select name="status">{status_options}</select><label>Priorità</label><select name="priority">{priority_options}</select><label>Note interne / soluzione</label><textarea name="resolution_notes" maxlength="4000">{esc(t["resolution_notes"] or "")}</textarea><button>Salva modifiche</button></form><h2 style="margin-top:22px">Foto</h2><div class="photos">{photos}</div>{delete_form}</div></div>''')
+    return page(t['ticket_code'], f'''<div class="grid"><div class="card span-7"><h2>{esc(t["ticket_code"])}</h2><p><b>Zona:</b> {esc(t["zone_name"])}</p><p><b>Segnalato da:</b> {esc(t["reporter_name"])}</p><p><b>Categoria:</b> {esc(t["category"])}</p><h3>Descrizione originale</h3><p style="white-space:pre-wrap">{esc(t["description_original"])}</p><h3>Traduzione italiana</h3><p style="white-space:pre-wrap">{esc(t["description_it"] or "In attesa")}</p><h3>Traduzione tedesca / Deutsche Übersetzung</h3><p style="white-space:pre-wrap">{esc(t["description_de"] or "In attesa / Ausstehend")}</p><form method="post" action="{ticket_id}/translation"><label>Traduzione italiana</label><textarea name="description_it" maxlength="4000">{esc(t["description_it"] or "")}</textarea><label>Traduzione tedesca / Deutsche Übersetzung</label><textarea name="description_de" maxlength="4000">{esc(t["description_de"] or "")}</textarea><button>Salva traduzioni</button></form></div><div class="card span-5"><h2>Gestione</h2><form method="post" action="{ticket_id}/update"><label>Stato</label><select name="status">{status_options}</select><label>Priorità</label><select name="priority">{priority_options}</select><label>Note interne / soluzione</label><textarea name="resolution_notes" maxlength="4000">{esc(t["resolution_notes"] or "")}</textarea><button>Salva modifiche</button></form><h2 style="margin-top:22px">Foto</h2><div class="photos">{photos}</div>{delete_form}</div></div>''')
 
 
 @admin_app.post('/ticket/{ticket_id}/delete')
@@ -490,9 +549,10 @@ def ticket_update(ticket_id: int, status: str = Form(...), priority: str = Form(
 
 
 @admin_app.post('/ticket/{ticket_id}/translation')
-def ticket_translation(ticket_id: int, description_it: str = Form('')):
+def ticket_translation(ticket_id: int, description_it: str = Form(''), description_de: str = Form('')):
     con = db()
-    con.execute('UPDATE tickets SET description_it=?, translation_status=?, updated_at=? WHERE id=?', (description_it.strip() or None, 'manual' if description_it.strip() else 'pending', now_iso(), ticket_id))
+    state = 'manual' if description_it.strip() or description_de.strip() else 'pending'
+    con.execute('UPDATE tickets SET description_it=?, description_de=?, translation_status=?, updated_at=? WHERE id=?', (description_it.strip() or None, description_de.strip() or None, state, now_iso(), ticket_id))
     con.commit()
     con.close()
     return RedirectResponse(f'../{ticket_id}', status_code=303)
@@ -520,6 +580,53 @@ def health():
 @public_app.get('/', response_class=HTMLResponse)
 def public_home():
     return page('Hausmeister Carellas', '<div class="public-card"><div class="success"><h1>Portale segnalazioni</h1><p>Per aprire una segnalazione, scansiona il QR della zona.</p></div></div>', public=True)
+
+
+@public_app.get('/g/{token}', response_class=HTMLResponse)
+def group_form(request: Request, token: str):
+    if token != group_token():
+        raise HTTPException(404, 'QR di gruppo non valido')
+    if not get_setting('group_pin_hash'):
+        return page('Servizio non configurato', '<div class="public-card"><div class="success"><h1>Servizio non disponibile</h1><p>Il responsabile deve configurare il PIN di gruppo.</p></div></div>', public=True)
+    cookie = request.cookies.get('hm_session')
+    unlocked = False
+    if cookie:
+        try:
+            unlocked = serializer().loads(cookie, max_age=86400).get('group') == token
+        except BadSignature:
+            pass
+    if not unlocked:
+        return page('Accesso alle zone', f'''<div class="public-card"><h1>Tutte le zone</h1><span class="muted">Inserisci il PIN del QR di gruppo</span><form method="post" action="{esc(token)}/unlock"><label>PIN di gruppo</label><input type="password" name="pin" inputmode="numeric" autocomplete="one-time-code" required placeholder="Inserisci PIN"><button>Accedi</button></form></div>''', public=True)
+    con = db()
+    zones = con.execute('SELECT * FROM zones WHERE active=1 ORDER BY name').fetchall()
+    con.close()
+    buttons = ''.join(f'<a class="btn" style="width:100%;margin:6px 0" href="../../r/{esc(zone["token"])}">{esc(zone["name"])}</a>' for zone in zones) or '<p class="muted">Nessuna zona attiva.</p>'
+    return page('Scegli la zona', f'''<div class="public-card"><h1>Scegli la zona</h1><span class="muted">Seleziona dove vuoi fare la segnalazione</span>{buttons}</div>''', public=True)
+
+
+@public_app.post('/g/{token}/unlock')
+def group_unlock(request: Request, token: str, pin: str = Form(...)):
+    if token != group_token():
+        raise HTTPException(404)
+    client = request.headers.get('x-forwarded-for', '').split(',')[0].strip() or (request.client.host if request.client else 'unknown')
+    key = f'{client}:group:{token}'
+    current = time.time()
+    attempts = [stamp for stamp in PIN_ATTEMPTS.get(key, []) if current - stamp < PIN_WINDOW_SECONDS]
+    if len(attempts) >= PIN_MAX_ATTEMPTS:
+        raise HTTPException(429, 'Troppi tentativi. Riprova tra 15 minuti.')
+    pin_hash = get_setting('group_pin_hash')
+    try:
+        valid = bool(pin_hash and argon2.verify(pin, pin_hash))
+    except Exception:
+        valid = False
+    if not valid:
+        attempts.append(current)
+        PIN_ATTEMPTS[key] = attempts
+        raise HTTPException(403, 'PIN di gruppo non valido')
+    PIN_ATTEMPTS.pop(key, None)
+    response = RedirectResponse(f'../{token}', status_code=303)
+    response.set_cookie('hm_session', serializer().dumps({'group': token}), max_age=86400, httponly=True, secure=True, samesite='lax')
+    return response
 
 
 @public_app.get('/r/{token}', response_class=HTMLResponse)
@@ -581,8 +688,10 @@ async def submit_ticket(request: Request, token: str, reporter_name: str = Form(
     if not zone:
         con.close()
         raise HTTPException(404)
-    description_it, translation_status = translate_to_italian(description)
-    cur = con.execute('INSERT INTO tickets(zone_id,reporter_name,category,priority,description_original,description_it,translation_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)', (zone['id'], reporter_name, category, priority, description, description_it, translation_status, now_iso(), now_iso()))
+    description_it, status_it = translate_text(description, 'it')
+    description_de, status_de = translate_text(description, 'de')
+    translation_status = 'completed' if status_it == 'completed' and status_de == 'completed' else ('failed' if 'failed' in (status_it, status_de) else 'pending')
+    cur = con.execute('INSERT INTO tickets(zone_id,reporter_name,category,priority,description_original,description_it,description_de,translation_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)', (zone['id'], reporter_name, category, priority, description, description_it, description_de, translation_status, now_iso(), now_iso()))
     ticket_id = cur.lastrowid
     code = f'{datetime.now().year}-{ticket_id:05d}'
     con.execute('UPDATE tickets SET ticket_code=? WHERE id=?', (code, ticket_id))
