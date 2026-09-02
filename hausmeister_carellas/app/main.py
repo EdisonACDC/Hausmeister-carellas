@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.1.6'
+APP_VERSION = '1.1.7'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -329,6 +329,8 @@ public_app = FastAPI(title='Hausmeister Carellas Public')
 @admin_app.middleware('http')
 async def admin_headers(request: Request, call_next):
     response = await call_next(request)
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['Referrer-Policy'] = 'same-origin'
@@ -414,16 +416,18 @@ def create_zone(name: str = Form(...)):
     con.commit()
     zone_id = cur.lastrowid
     con.close()
-    return RedirectResponse(f'zone/{zone_id}', status_code=303)
+    message = urllib.parse.quote(f'Zona "{name}" creata correttamente. Ora è già visibile nella lista.')
+    return RedirectResponse(f'zones?message={message}&created={zone_id}', status_code=303)
 
 
 @admin_app.get('/zones', response_class=HTMLResponse)
-def zones_page():
+def zones_page(message: str = '', created: int = 0):
     con = db()
     zones = con.execute('SELECT z.*, COUNT(t.id) ticket_count FROM zones z LEFT JOIN tickets t ON t.zone_id=z.id GROUP BY z.id ORDER BY z.name').fetchall()
     con.close()
-    rows = ''.join(f'''<tr><td><b>{esc(z['name'])}</b></td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class="btn" href="zone/{z['id']}">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan="4">Nessuna zona</td></tr>'
-    return page('Zone / QR', f'''<div class="grid"><div class="card span-8"><h2>Zone esistenti</h2><div class="table-wrap"><table><tr><th>Zona</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2><form method="post" action="zone"><label>Nome</label><input name="name" maxlength="80" required placeholder="Es. Cucina"><button>Crea zona e QR</button></form></div></div>''')
+    rows = ''.join(f'''<tr{' class="new-zone"' if z['id'] == created else ''}><td><b>{esc(z['name'])}</b></td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class="btn" href="zone/{z['id']}">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan="4">Nessuna zona</td></tr>'
+    notice = f'<div class="notice">{esc(message)}</div>' if message else ''
+    return page('Zone / QR', f'''{notice}<style>.new-zone td{{background:#f1f8df}}</style><div class="grid"><div class="card span-8"><h2>Zone esistenti</h2><div class="table-wrap"><table><tr><th>Zona</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2><form method="post" action="zone"><label>Nome</label><input name="name" maxlength="80" required placeholder="Es. Cucina"><button>Crea zona e QR</button></form></div></div>''')
 
 
 @admin_app.post('/pin')
