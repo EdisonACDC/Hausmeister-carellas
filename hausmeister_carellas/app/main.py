@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.2.3'
+APP_VERSION = '1.3.0'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -394,6 +394,83 @@ def priority_dot(ticket):
     return ''
 
 
+MANAGER_TEXT = {
+    'it': {
+        'portal': 'Portale titolare', 'login': 'Accesso titolare', 'username': 'Nome utente',
+        'password': 'Password', 'enter': 'Accedi', 'logout': 'Esci', 'tickets': 'Ticket',
+        'no_tickets': 'Nessun ticket presente', 'zone': 'Zona', 'reporter': 'Segnalato da',
+        'category': 'Categoria', 'priority': 'Priorità', 'status': 'Stato', 'original': 'Descrizione originale',
+        'italian': 'Traduzione italiana', 'german': 'Traduzione tedesca', 'notes': 'Note interne / soluzione',
+        'photos': 'Foto', 'no_photos': 'Nessuna foto', 'save': 'Salva modifiche', 'delete': 'Elimina ticket e foto',
+        'invalid': 'Nome utente o password non validi', 'locked': 'Troppi tentativi. Riprova tra 15 minuti.',
+        'disabled': 'Il Portale Titolare non è ancora stato attivato.', 'updated': 'Ticket aggiornato correttamente.',
+    },
+    'de': {
+        'portal': 'Inhaberportal', 'login': 'Anmeldung für den Inhaber', 'username': 'Benutzername',
+        'password': 'Passwort', 'enter': 'Anmelden', 'logout': 'Abmelden', 'tickets': 'Tickets',
+        'no_tickets': 'Keine Tickets vorhanden', 'zone': 'Bereich', 'reporter': 'Gemeldet von',
+        'category': 'Kategorie', 'priority': 'Priorität', 'status': 'Status', 'original': 'Originalbeschreibung',
+        'italian': 'Italienische Übersetzung', 'german': 'Deutsche Übersetzung', 'notes': 'Interne Notizen / Lösung',
+        'photos': 'Fotos', 'no_photos': 'Keine Fotos', 'save': 'Änderungen speichern', 'delete': 'Ticket und Fotos löschen',
+        'invalid': 'Benutzername oder Passwort ungültig', 'locked': 'Zu viele Versuche. In 15 Minuten erneut versuchen.',
+        'disabled': 'Das Inhaberportal wurde noch nicht aktiviert.', 'updated': 'Ticket erfolgreich aktualisiert.',
+    },
+}
+
+
+def manager_text(lang: str, key: str):
+    return MANAGER_TEXT.get(lang, MANAGER_TEXT['it']).get(key, key)
+
+
+def manager_portal_url():
+    base = public_base_url()
+    return f'{base}/manager/login' if base else '/manager/login'
+
+
+def manager_session_valid(request: Request):
+    if get_setting('manager_enabled', '0') != '1':
+        return False
+    cookie = request.cookies.get('hm_manager_session')
+    if not cookie:
+        return False
+    try:
+        data = serializer().loads(cookie, max_age=12 * 3600)
+        return (
+            data.get('purpose') == 'manager'
+            and data.get('username') == get_setting('manager_username', '')
+            and data.get('version') == get_setting('manager_session_version', '')
+        )
+    except BadSignature:
+        return False
+
+
+def delete_resolved_ticket(ticket_id: int):
+    con = db()
+    ticket = con.execute('SELECT ticket_code,status FROM tickets WHERE id=?', (ticket_id,)).fetchone()
+    if not ticket:
+        con.close()
+        raise HTTPException(404, 'Ticket non trovato')
+    if ticket['status'] != 'Risolto':
+        con.close()
+        raise HTTPException(409, 'Puoi eliminare soltanto un ticket risolto')
+    files = con.execute('SELECT stored_name FROM ticket_files WHERE ticket_id=?', (ticket_id,)).fetchall()
+    con.execute('DELETE FROM ticket_files WHERE ticket_id=?', (ticket_id,))
+    con.execute('DELETE FROM tickets WHERE id=?', (ticket_id,))
+    con.commit()
+    con.close()
+    deleted_photos = 0
+    upload_root = UPLOAD_DIR.resolve()
+    for row in files:
+        path = (UPLOAD_DIR / row['stored_name']).resolve()
+        if path.parent == upload_root and path.is_file():
+            try:
+                path.unlink()
+                deleted_photos += 1
+            except OSError:
+                pass
+    return ticket['ticket_code'], deleted_photos
+
+
 def brand_logo():
     return '''<div class="brand-logo" aria-label="Carellas Ristorante">
     <svg viewBox="0 0 360 128" role="img" aria-label="Carellas Ristorante">
@@ -460,6 +537,9 @@ async def admin_headers(request: Request, call_next):
 @public_app.middleware('http')
 async def public_headers(request: Request, call_next):
     response = await call_next(request)
+    if request.url.path.startswith('/manager') or request.url.path.startswith('/n/'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'no-referrer'
@@ -578,6 +658,24 @@ def save_group_pin(pin: str = Form(...)):
     return RedirectResponse('../settings', status_code=303)
 
 
+@admin_app.post('/settings/manager')
+def save_manager_account(username: str = Form(...), password: str = Form(''), enabled: str = Form('')):
+    username = username.strip()
+    password = password.strip()
+    if len(username) < 3 or len(username) > 80:
+        return RedirectResponse('../settings?message=' + urllib.parse.quote('Il nome utente deve contenere da 3 a 80 caratteri.'), status_code=303)
+    if password and (len(password) < 8 or len(password) > 128):
+        return RedirectResponse('../settings?message=' + urllib.parse.quote('La password deve contenere da 8 a 128 caratteri.'), status_code=303)
+    if not password and not get_setting('manager_password_hash'):
+        return RedirectResponse('../settings?message=' + urllib.parse.quote('Inserisci una password per il titolare.'), status_code=303)
+    set_setting('manager_username', username)
+    if password:
+        set_setting('manager_password_hash', argon2.hash(password))
+    set_setting('manager_enabled', '1' if enabled == '1' else '0')
+    set_setting('manager_session_version', secrets.token_urlsafe(18))
+    return RedirectResponse('../settings?message=' + urllib.parse.quote('Accesso del titolare aggiornato correttamente.'), status_code=303)
+
+
 @admin_app.get('/settings', response_class=HTMLResponse)
 def settings_page(message: str = ''):
     options = load_options()
@@ -595,9 +693,14 @@ def settings_page(message: str = ''):
     if not device_cards:
         device_cards = '<div class="card span-12"><p class="muted">Nessun dispositivo configurato.</p></div>'
     discovery_status = get_setting('notification_discovery_status', 'Premi il pulsante per cercare automaticamente i telefoni registrati nell’app Home Assistant.')
+    manager_username = get_setting('manager_username', '')
+    manager_configured = bool(get_setting('manager_password_hash'))
+    manager_checked = 'checked' if get_setting('manager_enabled', '0') == '1' else ''
+    manager_url = manager_portal_url()
+    manager_password_help = 'Lascia vuoto per conservare la password attuale.' if manager_configured else 'Crea una password di almeno 8 caratteri.'
     translation = options.get('translation_url') or 'Automatica integrata (Google con MyMemory di riserva)'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/devices/discover"><button type="submit">⌕ Rileva dispositivi da Home Assistant</button></form><div class="notice" style="margin-top:12px"><b>Diagnostica rilevamento:</b><br>{esc(discovery_status)}</div><details><summary><b>Aggiunta manuale</b></summary><form method="post" action="settings/device" style="margin-top:12px"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></details></div>{device_cards}<div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
+    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/devices/discover"><button type="submit">⌕ Rileva dispositivi da Home Assistant</button></form><div class="notice" style="margin-top:12px"><b>Diagnostica rilevamento:</b><br>{esc(discovery_status)}</div><details><summary><b>Aggiunta manuale</b></summary><form method="post" action="settings/device" style="margin-top:12px"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></details></div>{device_cards}<div class="card span-12"><h2>Accesso del titolare</h2><p class="muted">Portale separato da Home Assistant. Il titolare può gestire i ticket ma non può modificare PIN, QR, zone, telefoni o configurazioni tecniche.</p><p><b>Indirizzo del portale:</b><br><a href="{esc(manager_url)}" target="_blank">{esc(manager_url)}</a></p><form method="post" action="settings/manager"><label>Nome utente del titolare</label><input name="username" value="{esc(manager_username)}" minlength="3" maxlength="80" autocomplete="username" required placeholder="Es. titolare"><label>Nuova password</label><input type="password" name="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="{esc(manager_password_help)}"><p class="muted">{esc(manager_password_help)} La password viene protetta e non può essere visualizzata: se viene dimenticata, puoi sostituirla qui.</p><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {manager_checked} style="width:auto;margin:0"> Portale Titolare attivo</label><button type="submit">Salva accesso titolare</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
 
 
 @admin_app.get('/settings/group-qr')
@@ -830,30 +933,8 @@ def ticket_auto_translate(ticket_id: int):
 
 @admin_app.post('/ticket/{ticket_id}/delete')
 def ticket_delete(ticket_id: int):
-    con = db()
-    ticket = con.execute('SELECT ticket_code,status FROM tickets WHERE id=?', (ticket_id,)).fetchone()
-    if not ticket:
-        con.close()
-        raise HTTPException(404, 'Ticket non trovato')
-    if ticket['status'] != 'Risolto':
-        con.close()
-        raise HTTPException(409, 'Puoi eliminare soltanto un ticket risolto')
-    files = con.execute('SELECT stored_name FROM ticket_files WHERE ticket_id=?', (ticket_id,)).fetchall()
-    con.execute('DELETE FROM ticket_files WHERE ticket_id=?', (ticket_id,))
-    con.execute('DELETE FROM tickets WHERE id=?', (ticket_id,))
-    con.commit()
-    con.close()
-    deleted_photos = 0
-    upload_root = UPLOAD_DIR.resolve()
-    for row in files:
-        path = (UPLOAD_DIR / row['stored_name']).resolve()
-        if path.parent == upload_root and path.is_file():
-            try:
-                path.unlink()
-                deleted_photos += 1
-            except OSError:
-                pass
-    message = f'Ticket {ticket["ticket_code"]} eliminato. Foto eliminate: {deleted_photos}.'
+    ticket_code, deleted_photos = delete_resolved_ticket(ticket_id)
+    message = f'Ticket {ticket_code} eliminato. Foto eliminate: {deleted_photos}.'
     return RedirectResponse(f'../../tickets?message={urllib.parse.quote(message)}', status_code=303)
 
 
@@ -941,6 +1022,143 @@ def notification_ticket_file(signed_token: str, file_id: int):
 def public_home(request: Request):
     lang = public_language(request)
     return page('Hausmeister Carellas', f'<div class="public-card"><div class="success"><h1>{public_text(lang, "portal")}</h1><p>{public_text(lang, "scan_help")}</p></div></div>', public=True, lang=lang, close_on_back=True)
+
+
+@public_app.get('/manager/login', response_class=HTMLResponse)
+def manager_login_page(request: Request, error: str = ''):
+    lang = public_language(request)
+    if manager_session_valid(request):
+        return RedirectResponse('/manager', status_code=303)
+    if get_setting('manager_enabled', '0') != '1' or not get_setting('manager_password_hash'):
+        return page(manager_text(lang, 'portal'), f'''<div class="public-card"><div class="success"><h1>{manager_text(lang, 'portal')}</h1><p>{manager_text(lang, 'disabled')}</p></div></div>''', public=True, lang=lang, close_on_back=True)
+    error_notice = f'<div class="notice warning" role="alert"><b>⚠ {esc(error)}</b></div>' if error else ''
+    return page(manager_text(lang, 'login'), f'''<div class="public-card"><h1>{manager_text(lang, 'login')}</h1>{error_notice}<form method="post" action="/manager/login"><label>{manager_text(lang, 'username')}</label><input name="username" maxlength="80" autocomplete="username" required autofocus><label>{manager_text(lang, 'password')}</label><input type="password" name="password" maxlength="128" autocomplete="current-password" required><button type="submit">{manager_text(lang, 'enter')}</button></form></div>''', public=True, lang=lang, close_on_back=True)
+
+
+@public_app.post('/manager/login')
+def manager_login(request: Request, username: str = Form(...), password: str = Form(...)):
+    lang = public_language(request)
+    client = request.headers.get('x-forwarded-for', '').split(',')[0].strip() or (request.client.host if request.client else 'unknown')
+    key = f'{client}:manager'
+    current = time.time()
+    attempts = [stamp for stamp in PIN_ATTEMPTS.get(key, []) if current - stamp < PIN_WINDOW_SECONDS]
+    if len(attempts) >= PIN_MAX_ATTEMPTS:
+        return RedirectResponse('/manager/login?error=' + urllib.parse.quote(manager_text(lang, 'locked')), status_code=303)
+    stored_username = get_setting('manager_username', '')
+    password_hash = get_setting('manager_password_hash', '')
+    try:
+        valid = bool(get_setting('manager_enabled', '0') == '1' and secrets.compare_digest(username.strip(), stored_username) and password_hash and argon2.verify(password, password_hash))
+    except Exception:
+        valid = False
+    if not valid:
+        attempts.append(current)
+        PIN_ATTEMPTS[key] = attempts
+        return RedirectResponse('/manager/login?error=' + urllib.parse.quote(manager_text(lang, 'invalid')), status_code=303)
+    PIN_ATTEMPTS.pop(key, None)
+    response = RedirectResponse('/manager', status_code=303)
+    response.set_cookie('hm_manager_session', serializer().dumps({'purpose': 'manager', 'username': stored_username, 'version': get_setting('manager_session_version', '')}), max_age=12 * 3600, httponly=True, secure=True, samesite='lax', path='/')
+    return response
+
+
+@public_app.get('/manager/logout')
+def manager_logout():
+    response = RedirectResponse('/manager/login', status_code=303)
+    response.delete_cookie('hm_manager_session', path='/')
+    return response
+
+
+@public_app.get('/manager', response_class=HTMLResponse)
+def manager_home(request: Request, message: str = ''):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    lang = public_language(request)
+    con = db()
+    tickets = con.execute('SELECT t.*, z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id ORDER BY t.id DESC').fetchall()
+    con.close()
+    status_labels = {
+        'it': {'Nuovo': 'Nuovo', 'Preso in carico': 'Preso in carico', 'In lavorazione': 'In lavorazione', 'Da verificare': 'Da verificare', 'Risolto': 'Risolto'},
+        'de': {'Nuovo': 'Neu', 'Preso in carico': 'Übernommen', 'In lavorazione': 'In Bearbeitung', 'Da verificare': 'Zu prüfen', 'Risolto': 'Erledigt'},
+    }[lang]
+    priority_labels = {'it': {'Bassa': 'Bassa', 'Normale': 'Normale', 'Alta': 'Alta', 'Urgente': 'Urgente'}, 'de': {'Bassa': 'Niedrig', 'Normale': 'Normal', 'Alta': 'Hoch', 'Urgente': 'Dringend'}}[lang]
+    cards = ''
+    for ticket in tickets:
+        alert = priority_dot(ticket)
+        border = 'border:2px solid #c62828;' if ticket_priority_class(ticket) else ''
+        cards += f'''<a href="/manager/ticket/{ticket['id']}" style="display:block;text-decoration:none;margin-bottom:12px"><div class="card" style="{border}"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><h2 style="margin-bottom:8px">{alert}{esc(ticket['ticket_code'])}</h2><p style="margin:4px 0"><b>{manager_text(lang, 'zone')}:</b> {esc(ticket['zone_name'])}</p><p style="margin:4px 0"><b>{manager_text(lang, 'category')}:</b> {esc(ticket['category'])}</p></div><span class="pill {'done' if ticket['status'] == 'Risolto' else 'open'}">{esc(status_labels.get(ticket['status'], ticket['status']))}</span></div><p style="margin-bottom:0"><b>{manager_text(lang, 'priority')}:</b> {esc(priority_labels.get(ticket['priority'] or 'Normale', ticket['priority'] or 'Normale'))}</p></div></a>'''
+    if not cards:
+        cards = f'<div class="public-card"><p>{manager_text(lang, "no_tickets")}</p></div>'
+    notice = f'<div class="notice">{esc(message)}</div>' if message else ''
+    body = f'''<div class="actions" style="justify-content:space-between;margin-bottom:14px"><h1 style="margin:0">{manager_text(lang, 'tickets')}</h1><a class="btn danger" href="/manager/logout">{manager_text(lang, 'logout')}</a></div>{notice}{cards}'''
+    return page(manager_text(lang, 'portal'), body, public=True, lang=lang, close_on_back=True)
+
+
+@public_app.get('/manager/ticket/{ticket_id}', response_class=HTMLResponse)
+def manager_ticket_detail(request: Request, ticket_id: int):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    lang = public_language(request)
+    con = db()
+    ticket = con.execute('SELECT t.*, z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id WHERE t.id=?', (ticket_id,)).fetchone()
+    files = con.execute('SELECT * FROM ticket_files WHERE ticket_id=? ORDER BY id', (ticket_id,)).fetchall()
+    con.close()
+    if not ticket:
+        raise HTTPException(404, 'Ticket non trovato')
+    status_labels = {
+        'it': {'Nuovo': 'Nuovo', 'Preso in carico': 'Preso in carico', 'In lavorazione': 'In lavorazione', 'Da verificare': 'Da verificare', 'Risolto': 'Risolto'},
+        'de': {'Nuovo': 'Neu', 'Preso in carico': 'Übernommen', 'In lavorazione': 'In Bearbeitung', 'Da verificare': 'Zu prüfen', 'Risolto': 'Erledigt'},
+    }[lang]
+    priority_labels = {'it': {'Bassa': 'Bassa', 'Normale': 'Normale', 'Alta': 'Alta', 'Urgente': 'Urgente'}, 'de': {'Bassa': 'Niedrig', 'Normale': 'Normal', 'Alta': 'Hoch', 'Urgente': 'Dringend'}}[lang]
+    status_options = ''.join(f'<option value="{esc(value)}" {"selected" if ticket["status"] == value else ""}>{esc(status_labels[value])}</option>' for value in STATUSES)
+    priority_options = ''.join(f'<option value="{esc(value)}" {"selected" if (ticket["priority"] or "Normale") == value else ""}>{esc(priority_labels[value])}</option>' for value in PRIORITIES)
+    photos = ''.join(f'<a href="/manager/ticket/{ticket_id}/file/{file["id"]}" target="_blank"><img src="/manager/ticket/{ticket_id}/file/{file["id"]}" alt="{esc(file["original_name"])}"><span class="muted">{esc(file["original_name"])}</span></a>' for file in files) or f'<p class="muted">{manager_text(lang, "no_photos")}</p>'
+    priority_notice = f'<div class="priority-alert">{priority_dot(ticket)} {manager_text(lang, "priority").upper()} {esc(priority_labels.get(ticket["priority"], ticket["priority"]))}</div>' if ticket_priority_class(ticket) else ''
+    delete_form = ''
+    if ticket['status'] == 'Risolto':
+        delete_form = f'''<form method="post" action="/manager/ticket/{ticket_id}/delete" onsubmit="return confirm('Eliminare definitivamente il ticket e tutte le foto?')"><button type="submit" class="danger">{manager_text(lang, 'delete')}</button></form>'''
+    body = f'''{priority_notice}<div class="public-card"><h1>{esc(ticket['ticket_code'])}</h1><p><b>{manager_text(lang, 'zone')}:</b> {esc(ticket['zone_name'])}</p><p><b>{manager_text(lang, 'reporter')}:</b> {esc(ticket['reporter_name'])}</p><p><b>{manager_text(lang, 'category')}:</b> {esc(ticket['category'])}</p><h2>{manager_text(lang, 'original')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_original'])}</p><h2>{manager_text(lang, 'italian')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_it'] or '—')}</p><h2>{manager_text(lang, 'german')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_de'] or '—')}</p><form method="post" action="/manager/ticket/{ticket_id}/update"><label>{manager_text(lang, 'status')}</label><select name="status">{status_options}</select><label>{manager_text(lang, 'priority')}</label><select name="priority">{priority_options}</select><label>{manager_text(lang, 'notes')}</label><textarea name="resolution_notes" maxlength="4000">{esc(ticket['resolution_notes'] or '')}</textarea><button type="submit">{manager_text(lang, 'save')}</button></form><h2 style="margin-top:22px">{manager_text(lang, 'photos')}</h2><div class="photos">{photos}</div><div style="margin-top:22px">{delete_form}</div></div>'''
+    return page(ticket['ticket_code'], body, public=True, lang=lang, back_url='/manager')
+
+
+@public_app.post('/manager/ticket/{ticket_id}/update')
+def manager_ticket_update(request: Request, ticket_id: int, status: str = Form(...), priority: str = Form(...), resolution_notes: str = Form('')):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    if status not in STATUSES or priority not in PRIORITIES:
+        raise HTTPException(400, 'Valore non valido')
+    con = db()
+    exists = con.execute('SELECT id FROM tickets WHERE id=?', (ticket_id,)).fetchone()
+    if not exists:
+        con.close()
+        raise HTTPException(404, 'Ticket non trovato')
+    con.execute('UPDATE tickets SET status=?, priority=?, resolution_notes=?, updated_at=? WHERE id=?', (status, priority, resolution_notes.strip(), now_iso(), ticket_id))
+    con.commit()
+    con.close()
+    return RedirectResponse(f'/manager/ticket/{ticket_id}', status_code=303)
+
+
+@public_app.post('/manager/ticket/{ticket_id}/delete')
+def manager_ticket_delete(request: Request, ticket_id: int):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    code, deleted_photos = delete_resolved_ticket(ticket_id)
+    message = f'Ticket {code} eliminato. Foto eliminate: {deleted_photos}.'
+    return RedirectResponse('/manager?message=' + urllib.parse.quote(message), status_code=303)
+
+
+@public_app.get('/manager/ticket/{ticket_id}/file/{file_id}')
+def manager_ticket_file(request: Request, ticket_id: int, file_id: int):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    con = db()
+    row = con.execute('SELECT * FROM ticket_files WHERE id=? AND ticket_id=?', (file_id, ticket_id)).fetchone()
+    con.close()
+    if not row:
+        raise HTTPException(404)
+    path = (UPLOAD_DIR / row['stored_name']).resolve()
+    if not path.is_file() or path.parent != UPLOAD_DIR.resolve():
+        raise HTTPException(404)
+    filename = Path(row['original_name']).name.replace('"', '').replace('\r', '').replace('\n', '')
+    return FileResponse(path, media_type=row['content_type'], filename=filename, content_disposition_type='inline', headers={'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store'})
 
 
 @public_app.get('/g/{token}', response_class=HTMLResponse)
