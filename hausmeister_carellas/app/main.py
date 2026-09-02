@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.0.0'
+APP_VERSION = '1.0.1'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -282,7 +282,7 @@ def admin_home():
 
 
 @admin_app.get('/tickets', response_class=HTMLResponse)
-def tickets_page(q: str = '', status: str = ''):
+def tickets_page(q: str = '', status: str = '', message: str = ''):
     query = '''SELECT t.*, z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id WHERE 1=1'''
     params = []
     if q.strip():
@@ -298,7 +298,8 @@ def tickets_page(q: str = '', status: str = ''):
     con.close()
     rows = ''.join(f'''<tr><td><a href="ticket/{t['id']}"><b>{esc(t['ticket_code'])}</b></a></td><td>{esc(t['zone_name'])}</td><td>{esc(t['reporter_name'])}</td><td>{esc(t['category'])}</td><td>{esc(t['priority'] or 'Normale')}</td><td><span class="pill {'done' if t['status'] == 'Risolto' else 'open'}">{esc(t['status'])}</span></td></tr>''' for t in tickets) or '<tr><td colspan="6">Nessun ticket trovato</td></tr>'
     options = '<option value="">Tutti gli stati</option>' + ''.join(f'<option value="{esc(s)}" {"selected" if status == s else ""}>{esc(s)}</option>' for s in STATUSES)
-    return page('Ticket', f'''<div class="card"><form class="filters" method="get"><div><label>Cerca</label><input name="q" value="{esc(q)}" placeholder="Codice, zona, nome o descrizione"></div><div><label>Stato</label><select name="status">{options}</select></div><button>Cerca</button></form><div class="actions" style="margin:14px 0"><a class="btn" href="tickets/export.csv">Esporta CSV</a></div><div class="table-wrap"><table><tr><th>ID</th><th>Zona</th><th>Segnalato da</th><th>Categoria</th><th>Priorità</th><th>Stato</th></tr>{rows}</table></div></div>''')
+    notice = f'<div class="notice">{esc(message)}</div>' if message else ''
+    return page('Ticket', f'''{notice}<div class="card"><form class="filters" method="get"><div><label>Cerca</label><input name="q" value="{esc(q)}" placeholder="Codice, zona, nome o descrizione"></div><div><label>Stato</label><select name="status">{options}</select></div><button>Cerca</button></form><div class="actions" style="margin:14px 0"><a class="btn" href="tickets/export.csv">Esporta CSV</a></div><div class="table-wrap"><table><tr><th>ID</th><th>Zona</th><th>Segnalato da</th><th>Categoria</th><th>Priorità</th><th>Stato</th></tr>{rows}</table></div></div>''')
 
 
 @admin_app.get('/tickets/export.csv')
@@ -441,7 +442,40 @@ def ticket_detail(ticket_id: int):
     photos = ''.join(f'<a href="{ticket_id}/file/{f["id"]}" target="_blank"><img src="{ticket_id}/file/{f["id"]}" alt="{esc(f["original_name"])}"><span class="muted">{esc(f["original_name"])}</span></a>' for f in files) or '<p class="muted">Nessuna foto</p>'
     status_options = ''.join(f'<option value="{esc(s)}" {"selected" if t["status"] == s else ""}>{esc(s)}</option>' for s in STATUSES)
     priority_options = ''.join(f'<option value="{esc(p)}" {"selected" if (t["priority"] or "Normale") == p else ""}>{esc(p)}</option>' for p in PRIORITIES)
-    return page(t['ticket_code'], f'''<div class="grid"><div class="card span-7"><h2>{esc(t["ticket_code"])}</h2><p><b>Zona:</b> {esc(t["zone_name"])}</p><p><b>Segnalato da:</b> {esc(t["reporter_name"])}</p><p><b>Categoria:</b> {esc(t["category"])}</p><h3>Descrizione originale</h3><p style="white-space:pre-wrap">{esc(t["description_original"])}</p><h3>Traduzione italiana</h3><p style="white-space:pre-wrap">{esc(t["description_it"] or "In attesa")}</p><form method="post" action="{ticket_id}/translation"><label>Correggi/inserisci traduzione</label><textarea name="description_it" maxlength="4000">{esc(t["description_it"] or "")}</textarea><button>Salva traduzione</button></form></div><div class="card span-5"><h2>Gestione</h2><form method="post" action="{ticket_id}/update"><label>Stato</label><select name="status">{status_options}</select><label>Priorità</label><select name="priority">{priority_options}</select><label>Note interne / soluzione</label><textarea name="resolution_notes" maxlength="4000">{esc(t["resolution_notes"] or "")}</textarea><button>Salva modifiche</button></form><h2 style="margin-top:22px">Foto</h2><div class="photos">{photos}</div></div></div>''')
+    delete_form = ''
+    if t['status'] == 'Risolto':
+        photo_text = f' e le sue {len(files)} foto' if files else ''
+        delete_form = f'''<hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h2>Elimina ticket</h2><p class="muted">Questa operazione libera spazio ma non può essere annullata.</p><form method="post" action="{ticket_id}/delete" onsubmit="return confirm('Eliminare definitivamente il ticket {esc(t['ticket_code'])}{photo_text}?')"><button class="danger" type="submit">Elimina ticket e foto</button></form>'''
+    return page(t['ticket_code'], f'''<div class="grid"><div class="card span-7"><h2>{esc(t["ticket_code"])}</h2><p><b>Zona:</b> {esc(t["zone_name"])}</p><p><b>Segnalato da:</b> {esc(t["reporter_name"])}</p><p><b>Categoria:</b> {esc(t["category"])}</p><h3>Descrizione originale</h3><p style="white-space:pre-wrap">{esc(t["description_original"])}</p><h3>Traduzione italiana</h3><p style="white-space:pre-wrap">{esc(t["description_it"] or "In attesa")}</p><form method="post" action="{ticket_id}/translation"><label>Correggi/inserisci traduzione</label><textarea name="description_it" maxlength="4000">{esc(t["description_it"] or "")}</textarea><button>Salva traduzione</button></form></div><div class="card span-5"><h2>Gestione</h2><form method="post" action="{ticket_id}/update"><label>Stato</label><select name="status">{status_options}</select><label>Priorità</label><select name="priority">{priority_options}</select><label>Note interne / soluzione</label><textarea name="resolution_notes" maxlength="4000">{esc(t["resolution_notes"] or "")}</textarea><button>Salva modifiche</button></form><h2 style="margin-top:22px">Foto</h2><div class="photos">{photos}</div>{delete_form}</div></div>''')
+
+
+@admin_app.post('/ticket/{ticket_id}/delete')
+def ticket_delete(ticket_id: int):
+    con = db()
+    ticket = con.execute('SELECT ticket_code,status FROM tickets WHERE id=?', (ticket_id,)).fetchone()
+    if not ticket:
+        con.close()
+        raise HTTPException(404, 'Ticket non trovato')
+    if ticket['status'] != 'Risolto':
+        con.close()
+        raise HTTPException(409, 'Puoi eliminare soltanto un ticket risolto')
+    files = con.execute('SELECT stored_name FROM ticket_files WHERE ticket_id=?', (ticket_id,)).fetchall()
+    con.execute('DELETE FROM ticket_files WHERE ticket_id=?', (ticket_id,))
+    con.execute('DELETE FROM tickets WHERE id=?', (ticket_id,))
+    con.commit()
+    con.close()
+    deleted_photos = 0
+    upload_root = UPLOAD_DIR.resolve()
+    for row in files:
+        path = (UPLOAD_DIR / row['stored_name']).resolve()
+        if path.parent == upload_root and path.is_file():
+            try:
+                path.unlink()
+                deleted_photos += 1
+            except OSError:
+                pass
+    message = f'Ticket {ticket["ticket_code"]} eliminato. Foto eliminate: {deleted_photos}.'
+    return RedirectResponse(f'../../tickets?message={urllib.parse.quote(message)}', status_code=303)
 
 
 @admin_app.post('/ticket/{ticket_id}/update')
