@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.1.9'
+APP_VERSION = '1.2.0'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -143,15 +143,20 @@ def public_base_url():
     return (load_options().get('public_base_url') or '').strip().rstrip('/')
 
 
-def notify_home_assistant(message: str, title: str = 'Hausmeister Carellas'):
+def notify_home_assistant(message: str, title: str = 'Hausmeister Carellas', url: str = ''):
     options = load_options()
-    service = (options.get('notify_service') or '').strip().replace('notify.', '')
+    service = (options.get('notify_service') or 'mobile_app_iphone_marius').strip().removeprefix('notify.')
+    if service == 'iphone_marius':
+        service = 'mobile_app_iphone_marius'
     token = __import__('os').environ.get('SUPERVISOR_TOKEN', '')
     if not service or not token:
         return False, 'Servizio di notifica non configurato'
+    payload = {'title': title, 'message': message}
+    if url:
+        payload['data'] = {'url': url}
     request = urllib.request.Request(
         f'http://supervisor/core/api/services/notify/{service}',
-        data=json.dumps({'title': title, 'message': message}).encode(),
+        data=json.dumps(payload).encode(),
         headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
         method='POST',
     )
@@ -219,6 +224,24 @@ def translate_text(text: str, target: str):
 def public_url_for(zone):
     base = public_base_url()
     return f'{base}/r/{zone["token"]}' if base else f'/r/{zone["token"]}'
+
+
+def ticket_notification_url(ticket_id: int):
+    base = public_base_url()
+    if not base:
+        return ''
+    token = serializer().dumps({'ticket': ticket_id, 'purpose': 'notification'})
+    return f'{base}/n/{urllib.parse.quote(token, safe="")}'
+
+
+def notification_ticket_id(signed_token: str):
+    try:
+        payload = serializer().loads(signed_token, max_age=90 * 86400)
+        if payload.get('purpose') != 'notification':
+            raise BadSignature('Invalid purpose')
+        return int(payload['ticket'])
+    except (BadSignature, KeyError, TypeError, ValueError):
+        raise HTTPException(403, 'Collegamento non valido o scaduto')
 
 
 def group_token():
@@ -488,7 +511,7 @@ def settings_page(message: str = ''):
     group_pin = get_setting('group_pin_plain', '')
     group_url = group_public_url()
     base = options.get('public_base_url') or 'Non configurato'
-    notify = options.get('notify_service') or 'Non configurato'
+    notify = options.get('notify_service') or 'mobile_app_iphone_marius'
     translation = options.get('translation_url') or 'Automatica integrata (Google con MyMemory di riserva)'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
     return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Servizio notifiche:</b><br>{esc(notify)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">Questi valori si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p><form method="post" action="settings/test-notification"><button>Invia notifica di prova</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
@@ -724,6 +747,46 @@ def health():
     return {'ok': True, 'version': APP_VERSION}
 
 
+@public_app.get('/n/{signed_token}', response_class=HTMLResponse)
+def notification_ticket(request: Request, signed_token: str):
+    ticket_id = notification_ticket_id(signed_token)
+    con = db()
+    ticket = con.execute('SELECT t.*, z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id WHERE t.id=?', (ticket_id,)).fetchone()
+    files = con.execute('SELECT * FROM ticket_files WHERE ticket_id=? ORDER BY id', (ticket_id,)).fetchall()
+    con.close()
+    if not ticket:
+        raise HTTPException(404, 'Ticket non trovato')
+    lang = public_language(request)
+    labels = {
+        'it': {'title': 'Dettaglio ticket', 'zone': 'Zona', 'reporter': 'Segnalato da', 'category': 'Categoria', 'priority': 'Priorità', 'status': 'Stato', 'original': 'Descrizione originale', 'italian': 'Traduzione italiana', 'german': 'Traduzione tedesca', 'photos': 'Foto', 'none': 'Nessuna foto'},
+        'de': {'title': 'Ticketdetails', 'zone': 'Bereich', 'reporter': 'Gemeldet von', 'category': 'Kategorie', 'priority': 'Priorität', 'status': 'Status', 'original': 'Originalbeschreibung', 'italian': 'Italienische Übersetzung', 'german': 'Deutsche Übersetzung', 'photos': 'Fotos', 'none': 'Keine Fotos'},
+    }[lang]
+    photos = ''.join(
+        f'<a href="{esc(signed_token)}/file/{f["id"]}" target="_blank"><img src="{esc(signed_token)}/file/{f["id"]}" alt="{esc(f["original_name"])}"><span class="muted">{esc(f["original_name"])}</span></a>'
+        for f in files
+    ) or f'<p class="muted">{labels["none"]}</p>'
+    priority_notice = ''
+    if ticket_priority_class(ticket):
+        priority_notice = f'<div class="priority-alert">{priority_dot(ticket)} {labels["priority"].upper()} {esc(ticket["priority"].upper())}</div>'
+    body = f'''{priority_notice}<div class="public-card"><h1>{labels['title']}</h1><span class="muted">{esc(ticket['ticket_code'])}</span><p><b>{labels['zone']}:</b> {esc(ticket['zone_name'])}</p><p><b>{labels['reporter']}:</b> {esc(ticket['reporter_name'])}</p><p><b>{labels['category']}:</b> {esc(ticket['category'])}</p><p><b>{labels['priority']}:</b> {esc(ticket['priority'] or 'Normale')}</p><p><b>{labels['status']}:</b> {esc(ticket['status'])}</p><h2>{labels['original']}</h2><p style="white-space:pre-wrap">{esc(ticket['description_original'])}</p><h2>{labels['italian']}</h2><p style="white-space:pre-wrap">{esc(ticket['description_it'] or '—')}</p><h2>{labels['german']}</h2><p style="white-space:pre-wrap">{esc(ticket['description_de'] or '—')}</p><h2>{labels['photos']}</h2><div class="photos">{photos}</div></div>'''
+    return page(f'{labels["title"]} {ticket["ticket_code"]}', body, public=True, lang=lang, close_on_back=True)
+
+
+@public_app.get('/n/{signed_token}/file/{file_id}')
+def notification_ticket_file(signed_token: str, file_id: int):
+    ticket_id = notification_ticket_id(signed_token)
+    con = db()
+    row = con.execute('SELECT * FROM ticket_files WHERE id=? AND ticket_id=?', (file_id, ticket_id)).fetchone()
+    con.close()
+    if not row:
+        raise HTTPException(404)
+    path = (UPLOAD_DIR / row['stored_name']).resolve()
+    if not path.is_file() or path.parent != UPLOAD_DIR.resolve():
+        raise HTTPException(404)
+    filename = Path(row['original_name']).name.replace('"', '').replace('\r', '').replace('\n', '')
+    return FileResponse(path, media_type=row['content_type'], filename=filename, content_disposition_type='inline', headers={'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=300'})
+
+
 @public_app.get('/', response_class=HTMLResponse)
 def public_home(request: Request):
     lang = public_language(request)
@@ -893,5 +956,8 @@ async def submit_ticket(request: Request, token: str, reporter_name: str = Form(
         con.execute('INSERT INTO ticket_files(ticket_id,stored_name,original_name,content_type,created_at) VALUES(?,?,?,?,?)', (ticket_id, stored, Path(upload.filename).name, upload.content_type, now_iso()))
     con.commit()
     con.close()
-    notify_home_assistant(f'Nuovo ticket {code} · Zona {zone["name"]} · {category} · Priorità {priority}')
+    direct_url = ticket_notification_url(ticket_id)
+    title = f'{"URGENTE · " if priority == "Urgente" else ""}Ticket {code}'
+    message = f'Zona {zone["name"]} · {category} · Priorità {priority}\n{description[:250]}'
+    notify_home_assistant(message, title, direct_url)
     return page(public_text(lang, 'received'), f'''<div class="public-card"><div class="success"><div class="success-mark">✓</div><h1>{public_text(lang, 'received')}</h1><p>{public_text(lang, 'thanks')}</p><p><b>Ticket:</b> {esc(code)}<br><b>{public_text(lang, 'zone')}:</b> {esc(zone["name"])}</p></div></div>''', public=True, lang=lang, back_url=f'/r/{esc(token)}/logout')
