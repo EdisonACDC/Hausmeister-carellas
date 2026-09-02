@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.3.1'
+APP_VERSION = '1.3.2'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -404,6 +404,18 @@ MANAGER_TEXT = {
         'photos': 'Foto', 'no_photos': 'Nessuna foto', 'save': 'Salva modifiche', 'delete': 'Elimina ticket e foto',
         'invalid': 'Nome utente o password non validi', 'locked': 'Troppi tentativi. Riprova tra 15 minuti.',
         'disabled': 'Il Portale Titolare non è ancora stato attivato.', 'updated': 'Ticket aggiornato correttamente.',
+        'dashboard': 'Dashboard', 'zones': 'Zone / QR', 'settings': 'Impostazioni',
+        'total': 'Totale ticket', 'open': 'Aperti', 'working': 'In lavorazione', 'resolved': 'Risolti',
+        'recent': 'Ticket recenti', 'all_tickets': 'Vedi tutti i ticket', 'active': 'Attiva',
+        'inactive': 'Disattivata', 'no_zones': 'Nessuna zona', 'search': 'Cerca',
+        'search_hint': 'Codice, zona, nome o descrizione', 'all_statuses': 'Tutti gli stati',
+        'existing_zones': 'Zone esistenti', 'manage_qr': 'Gestisci / QR', 'new_zone': 'Nuova zona',
+        'name': 'Nome', 'create_zone': 'Crea zona e QR', 'download_qr': 'Scarica QR', 'print': 'Stampa',
+        'disable_zone': 'Disattiva zona', 'enable_zone': 'Attiva zona', 'regenerate_qr': 'Rigenera QR',
+        'edit_zone': 'Modifica zona', 'zone_name': 'Nome della zona', 'save_name': 'Salva nome',
+        'delete_zone': 'Elimina zona', 'linked_tickets': 'Ticket collegati',
+        'delete_zone_help': 'Eliminando la zona saranno eliminati anche i suoi ticket e tutte le fotografie.',
+        'admin_only': "Riservato all'amministratore",
     },
     'de': {
         'portal': 'Inhaberportal', 'login': 'Anmeldung für den Inhaber', 'username': 'Benutzername',
@@ -414,12 +426,42 @@ MANAGER_TEXT = {
         'photos': 'Fotos', 'no_photos': 'Keine Fotos', 'save': 'Änderungen speichern', 'delete': 'Ticket und Fotos löschen',
         'invalid': 'Benutzername oder Passwort ungültig', 'locked': 'Zu viele Versuche. In 15 Minuten erneut versuchen.',
         'disabled': 'Das Inhaberportal wurde noch nicht aktiviert.', 'updated': 'Ticket erfolgreich aktualisiert.',
+        'dashboard': 'Dashboard', 'zones': 'Bereiche / QR', 'settings': 'Einstellungen',
+        'total': 'Tickets gesamt', 'open': 'Offen', 'working': 'In Bearbeitung', 'resolved': 'Erledigt',
+        'recent': 'Aktuelle Tickets', 'all_tickets': 'Alle Tickets anzeigen', 'active': 'Aktiv',
+        'inactive': 'Deaktiviert', 'no_zones': 'Keine Bereiche', 'search': 'Suchen',
+        'search_hint': 'Code, Bereich, Name oder Beschreibung', 'all_statuses': 'Alle Status',
+        'existing_zones': 'Vorhandene Bereiche', 'manage_qr': 'Verwalten / QR', 'new_zone': 'Neuer Bereich',
+        'name': 'Name', 'create_zone': 'Bereich und QR erstellen', 'download_qr': 'QR herunterladen', 'print': 'Drucken',
+        'disable_zone': 'Bereich deaktivieren', 'enable_zone': 'Bereich aktivieren', 'regenerate_qr': 'QR neu erzeugen',
+        'edit_zone': 'Bereich bearbeiten', 'zone_name': 'Name des Bereichs', 'save_name': 'Name speichern',
+        'delete_zone': 'Bereich löschen', 'linked_tickets': 'Verknüpfte Tickets',
+        'delete_zone_help': 'Beim Löschen des Bereichs werden auch seine Tickets und alle Fotos gelöscht.',
+        'admin_only': 'Nur für den Administrator',
     },
 }
 
 
 def manager_text(lang: str, key: str):
     return MANAGER_TEXT.get(lang, MANAGER_TEXT['it']).get(key, key)
+
+
+def manager_status_text(lang: str, value: str):
+    if lang != 'de':
+        return value
+    return {'Nuovo': 'Neu', 'Preso in carico': 'Übernommen', 'In lavorazione': 'In Bearbeitung', 'Da verificare': 'Zu prüfen', 'Risolto': 'Erledigt'}.get(value, value)
+
+
+def manager_priority_text(lang: str, value: str):
+    if lang != 'de':
+        return value
+    return {'Bassa': 'Niedrig', 'Normale': 'Normal', 'Alta': 'Hoch', 'Urgente': 'Dringend'}.get(value, value)
+
+
+def manager_category_text(lang: str, value: str):
+    if lang != 'de':
+        return value
+    return {'Elettrico': 'Elektrik', 'Idraulico': 'Sanitär / Wasser', 'Climatizzazione': 'Klimaanlage', 'Porta/Finestra': 'Tür / Fenster', 'Attrezzatura cucina': 'Küchengerät', 'Altro': 'Sonstiges'}.get(value, value)
 
 
 def manager_portal_url():
@@ -506,7 +548,7 @@ input,textarea,select{{width:100%;padding:13px 14px;margin:7px 0 15px;border:1px
 @media(max-width:1000px){{.admin-shell{{grid-template-columns:1fr}}.sidebar{{height:auto;position:relative;padding:10px 12px;display:flex;align-items:center;gap:8px;overflow-x:auto}}.sidebar .brand-wrap{{min-width:155px;margin:0;padding:5px}}.sidebar .brand-logo{{width:145px}}.side-link{{white-space:nowrap;margin:0}}.side-foot{{display:none}}.span-3{{grid-column:span 6}}.span-4,.span-5,.span-6,.span-7,.span-8{{grid-column:span 12}}}}
 @media(max-width:640px){{.topbar{{padding:12px 14px}}.topbar h1{{font-size:20px}}.status-dot{{display:none}}main{{padding:12px}}.grid{{gap:10px}}.span-3,.span-4,.span-5,.span-6,.span-7,.span-8,.span-12{{grid-column:span 12}}.card{{padding:15px;border-radius:14px}}.metric strong{{font-size:24px}}.public-shell{{padding:14px}}.public-card{{padding:18px 15px}}.public-brand{{max-width:88%;width:270px}}.actions button,.actions .btn{{flex:1 1 140px}}.nav{{margin-bottom:8px}}.filters{{grid-template-columns:1fr}}}}
 </style><script>function adminGo(path){{const marker='/api/hassio_ingress/';const current=location.pathname;const start=current.indexOf(marker);if(start>=0){{const after=start+marker.length;const slash=current.indexOf('/',after);const base=slash>=0?current.slice(0,slash+1):current+'/';location.href=base+path;}}else{{location.href='/'+path;}}return false;}}function closePublicPage(){{window.close();setTimeout(function(){{if(!document.hidden&&history.length>1)history.back();}},180);}}</script></head><body><div class="page {shell_class}">'''+(
-    f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="/manager">⌂ Dashboard</a><a class="side-link" href="/manager/tickets">☷ {manager_text(lang, 'tickets')}</a><a class="side-link" href="/manager/zones">⌖ Zone / QR</a><span class="side-link disabled" aria-disabled="true" title="Riservato all'amministratore">⚙ Impostazioni</span><a class="side-link" href="/manager/logout">⇥ {manager_text(lang, 'logout')}</a><div class="side-foot">{manager_text(lang, 'portal')}<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● {manager_text(lang, 'portal')}</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if manager else f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="./" onclick="return adminGo('')">⌂ Dashboard</a><a class="side-link" href="tickets" onclick="return adminGo('tickets')">☷ Ticket</a><a class="side-link" href="zones" onclick="return adminGo('zones')">⌖ Zone / QR</a><a class="side-link" href="settings" onclick="return adminGo('settings')">⚙ Impostazioni</a><div class="side-foot">Hausmeister Carellas<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● Add-on in esecuzione</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if not public else f'''<div class="public-wrap"><div class="public-brand">{brand_logo()}</div><div class="nav">{back}</div>{body}</div>''')+'''</div></body></html>'''
+    f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="/manager">⌂ {manager_text(lang, 'dashboard')}</a><a class="side-link" href="/manager/tickets">☷ {manager_text(lang, 'tickets')}</a><a class="side-link" href="/manager/zones">⌖ {manager_text(lang, 'zones')}</a><span class="side-link disabled" aria-disabled="true" title="{manager_text(lang, 'admin_only')}">⚙ {manager_text(lang, 'settings')}</span><a class="side-link" href="/manager/logout">⇥ {manager_text(lang, 'logout')}</a><div class="side-foot">{manager_text(lang, 'portal')}<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Carellas Ristorante</small></div><div class="status-dot">● {manager_text(lang, 'portal')}</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if manager else f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="./" onclick="return adminGo('')">⌂ Dashboard</a><a class="side-link" href="tickets" onclick="return adminGo('tickets')">☷ Ticket</a><a class="side-link" href="zones" onclick="return adminGo('zones')">⌖ Zone / QR</a><a class="side-link" href="settings" onclick="return adminGo('settings')">⚙ Impostazioni</a><div class="side-foot">Hausmeister Carellas<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● Add-on in esecuzione</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if not public else f'''<div class="public-wrap"><div class="public-brand">{brand_logo()}</div><div class="nav">{back}</div>{body}</div>''')+'''</div></body></html>'''
 
 
 def session_zone(request: Request, token: str):
@@ -1080,22 +1122,21 @@ def manager_home(request: Request, message: str = ''):
     counts = {row['status']: row['n'] for row in con.execute('SELECT status, COUNT(*) n FROM tickets GROUP BY status').fetchall()}
     total = con.execute('SELECT COUNT(*) n FROM tickets').fetchone()['n']
     con.close()
-    labels = ({'total': 'Tickets gesamt', 'open': 'Offen', 'work': 'In Bearbeitung', 'done': 'Erledigt', 'recent': 'Aktuelle Tickets', 'all': 'Alle Tickets anzeigen', 'zones': 'Bereiche', 'active': 'Aktiv', 'inactive': 'Deaktiviert', 'none': 'Keine Bereiche', 'reporter': 'Gemeldet von'} if lang == 'de' else {'total': 'Totale ticket', 'open': 'Aperti', 'work': 'In lavorazione', 'done': 'Risolti', 'recent': 'Ticket recenti', 'all': 'Vedi tutti i ticket', 'zones': 'Zone', 'active': 'Attiva', 'inactive': 'Disattivata', 'none': 'Nessuna zona', 'reporter': 'Segnalato da'})
     open_count = counts.get('Nuovo', 0)
     work_count = counts.get('Preso in carico', 0) + counts.get('In lavorazione', 0)
     done_count = counts.get('Risolto', 0)
-    zone_rows = ''.join(f'<div class="zone-row"><div><b>{esc(z["name"])}</b><br><span class="muted">{labels["active"] if z["active"] else labels["inactive"]}</span></div><a class="btn" href="/manager/zone/{z["id"]}">QR →</a></div>' for z in zones) or f'<p class="muted">{labels["none"]}</p>'
-    ticket_rows = ''.join(f'<tr class="{ticket_priority_class(t)}"><td><a href="/manager/ticket/{t["id"]}"><b>{esc(t["ticket_code"])}</b></a></td><td>{esc(t["zone_name"])}</td><td>{esc(t["reporter_name"])}</td><td>{priority_dot(t)}<b>{esc(t["priority"] or "Normale")}</b></td><td><span class="pill {"done" if t["status"] == "Risolto" else "open"}">{esc(t["status"])}</span></td></tr>' for t in tickets) or f'<tr><td colspan="5">{manager_text(lang, "no_tickets")}</td></tr>'
+    zone_rows = ''.join(f'<div class="zone-row"><div><b>{esc(z["name"])}</b><br><span class="muted">{manager_text(lang, "active") if z["active"] else manager_text(lang, "inactive")}</span></div><a class="btn" href="/manager/zone/{z["id"]}">QR →</a></div>' for z in zones) or f'<p class="muted">{manager_text(lang, "no_zones")}</p>'
+    ticket_rows = ''.join(f'<tr class="{ticket_priority_class(t)}"><td><a href="/manager/ticket/{t["id"]}"><b>{esc(t["ticket_code"])}</b></a></td><td>{esc(t["zone_name"])}</td><td>{esc(t["reporter_name"])}</td><td>{priority_dot(t)}<b>{esc(manager_priority_text(lang, t["priority"] or "Normale"))}</b></td><td><span class="pill {"done" if t["status"] == "Risolto" else "open"}">{esc(manager_status_text(lang, t["status"]))}</span></td></tr>' for t in tickets) or f'<tr><td colspan="5">{manager_text(lang, "no_tickets")}</td></tr>'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
     body = f'''{notice}<div class="grid">
-      <div class="card span-3"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">{labels['total']}</span><strong>{total}</strong></div></div></div>
-      <div class="card span-3"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">{labels['open']}</span><strong>{open_count}</strong></div></div></div>
-      <div class="card span-3"><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">{labels['work']}</span><strong>{work_count}</strong></div></div></div>
-      <div class="card span-3"><div class="metric"><div class="metric-icon">✓</div><div><span class="muted">{labels['done']}</span><strong>{done_count}</strong></div></div></div>
-      <div class="card span-8"><h2>{labels['recent']}</h2><div class="table-wrap"><table><tr><th>ID</th><th>{manager_text(lang, 'zone')}</th><th>{labels['reporter']}</th><th>{manager_text(lang, 'priority')}</th><th>{manager_text(lang, 'status')}</th></tr>{ticket_rows}</table></div><p><a class="btn" href="/manager/tickets">{labels['all']}</a></p></div>
-      <div class="card span-4"><h2>{labels['zones']}</h2>{zone_rows}</div>
+      <div class="card span-3"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">{manager_text(lang, 'total')}</span><strong>{total}</strong></div></div></div>
+      <div class="card span-3"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">{manager_text(lang, 'open')}</span><strong>{open_count}</strong></div></div></div>
+      <div class="card span-3"><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">{manager_text(lang, 'working')}</span><strong>{work_count}</strong></div></div></div>
+      <div class="card span-3"><div class="metric"><div class="metric-icon">✓</div><div><span class="muted">{manager_text(lang, 'resolved')}</span><strong>{done_count}</strong></div></div></div>
+      <div class="card span-8"><h2>{manager_text(lang, 'recent')}</h2><div class="table-wrap"><table><tr><th>ID</th><th>{manager_text(lang, 'zone')}</th><th>{manager_text(lang, 'reporter')}</th><th>{manager_text(lang, 'priority')}</th><th>{manager_text(lang, 'status')}</th></tr>{ticket_rows}</table></div><p><a class="btn" href="/manager/tickets">{manager_text(lang, 'all_tickets')}</a></p></div>
+      <div class="card span-4"><h2>{manager_text(lang, 'zones')}</h2>{zone_rows}</div>
     </div>'''
-    return page('Dashboard', body, manager=True, lang=lang)
+    return page(manager_text(lang, 'dashboard'), body, manager=True, lang=lang)
 
 
 @public_app.get('/manager/tickets', response_class=HTMLResponse)
@@ -1116,13 +1157,10 @@ def manager_tickets_page(request: Request, q: str = '', status: str = '', messag
     con = db()
     tickets = con.execute(query, params).fetchall()
     con.close()
-    rows = ''.join(f'''<tr class="{ticket_priority_class(t)}"><td><a href="/manager/ticket/{t['id']}"><b>{esc(t['ticket_code'])}</b></a></td><td>{esc(t['zone_name'])}</td><td>{esc(t['reporter_name'])}</td><td>{esc(t['category'])}</td><td>{priority_dot(t)}<b>{esc(t['priority'] or 'Normale')}</b></td><td><span class="pill {'done' if t['status'] == 'Risolto' else 'open'}">{esc(t['status'])}</span></td></tr>''' for t in tickets) or f'<tr><td colspan="6">{manager_text(lang, "no_tickets")}</td></tr>'
-    all_statuses = 'Alle Status' if lang == 'de' else 'Tutti gli stati'
-    search_label = 'Suchen' if lang == 'de' else 'Cerca'
-    search_hint = 'Code, Bereich, Name oder Beschreibung' if lang == 'de' else 'Codice, zona, nome o descrizione'
-    options = f'<option value="">{all_statuses}</option>' + ''.join(f'<option value="{esc(s)}" {"selected" if status == s else ""}>{esc(s)}</option>' for s in STATUSES)
+    rows = ''.join(f'''<tr class="{ticket_priority_class(t)}"><td><a href="/manager/ticket/{t['id']}"><b>{esc(t['ticket_code'])}</b></a></td><td>{esc(t['zone_name'])}</td><td>{esc(t['reporter_name'])}</td><td>{esc(manager_category_text(lang, t['category']))}</td><td>{priority_dot(t)}<b>{esc(manager_priority_text(lang, t['priority'] or 'Normale'))}</b></td><td><span class="pill {'done' if t['status'] == 'Risolto' else 'open'}">{esc(manager_status_text(lang, t['status']))}</span></td></tr>''' for t in tickets) or f'<tr><td colspan="6">{manager_text(lang, "no_tickets")}</td></tr>'
+    options = f'<option value="">{manager_text(lang, "all_statuses")}</option>' + ''.join(f'<option value="{esc(s)}" {"selected" if status == s else ""}>{esc(manager_status_text(lang, s))}</option>' for s in STATUSES)
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    body = f'''{notice}<div class="card"><form class="filters" method="get"><div><label>{search_label}</label><input name="q" value="{esc(q)}" placeholder="{search_hint}"></div><div><label>{manager_text(lang, 'status')}</label><select name="status">{options}</select></div><button>{search_label}</button></form><div class="table-wrap" style="margin-top:14px"><table><tr><th>ID</th><th>{manager_text(lang, 'zone')}</th><th>{manager_text(lang, 'reporter')}</th><th>{manager_text(lang, 'category')}</th><th>{manager_text(lang, 'priority')}</th><th>{manager_text(lang, 'status')}</th></tr>{rows}</table></div></div>'''
+    body = f'''{notice}<div class="card"><form class="filters" method="get"><div><label>{manager_text(lang, 'search')}</label><input name="q" value="{esc(q)}" placeholder="{manager_text(lang, 'search_hint')}"></div><div><label>{manager_text(lang, 'status')}</label><select name="status">{options}</select></div><button>{manager_text(lang, 'search')}</button></form><div class="table-wrap" style="margin-top:14px"><table><tr><th>ID</th><th>{manager_text(lang, 'zone')}</th><th>{manager_text(lang, 'reporter')}</th><th>{manager_text(lang, 'category')}</th><th>{manager_text(lang, 'priority')}</th><th>{manager_text(lang, 'status')}</th></tr>{rows}</table></div></div>'''
     return page(manager_text(lang, 'tickets'), body, manager=True, lang=lang)
 
 
@@ -1134,10 +1172,10 @@ def manager_zones_page(request: Request, message: str = '', created: int = 0):
     con = db()
     zones = con.execute('SELECT z.*, COUNT(t.id) ticket_count FROM zones z LEFT JOIN tickets t ON t.zone_id=z.id GROUP BY z.id ORDER BY z.name').fetchall()
     con.close()
-    rows = ''.join(f'''<tr{' class="new-zone"' if z['id'] == created else ''}><td><b>{esc(z['name'])}</b></td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class="btn" href="/manager/zone/{z['id']}">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan="4">Nessuna zona</td></tr>'
+    rows = ''.join(f'''<tr{' class="new-zone"' if z['id'] == created else ''}><td><b>{esc(z['name'])}</b></td><td>{manager_text(lang, 'active') if z['active'] else manager_text(lang, 'inactive')}</td><td>{z['ticket_count']}</td><td><a class="btn" href="/manager/zone/{z['id']}">{manager_text(lang, 'manage_qr')}</a></td></tr>''' for z in zones) or f'<tr><td colspan="4">{manager_text(lang, "no_zones")}</td></tr>'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    body = f'''{notice}<style>.new-zone td{{background:#f1f8df}}</style><div class="grid"><div class="card span-8"><h2>Zone esistenti</h2><div class="table-wrap"><table><tr><th>Zona</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2><form method="post" action="/manager/zone"><label>Nome</label><input name="name" maxlength="80" required placeholder="Es. Cucina"><button>Crea zona e QR</button></form></div></div>'''
-    return page('Zone / QR', body, manager=True, lang=lang)
+    body = f'''{notice}<style>.new-zone td{{background:#f1f8df}}</style><div class="grid"><div class="card span-8"><h2>{manager_text(lang, 'existing_zones')}</h2><div class="table-wrap"><table><tr><th>{manager_text(lang, 'zone')}</th><th>{manager_text(lang, 'status')}</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>{manager_text(lang, 'new_zone')}</h2><form method="post" action="/manager/zone"><label>{manager_text(lang, 'name')}</label><input name="name" maxlength="80" required placeholder="Es. Cucina"><button>{manager_text(lang, 'create_zone')}</button></form></div></div>'''
+    return page(manager_text(lang, 'zones'), body, manager=True, lang=lang)
 
 
 @public_app.post('/manager/zone')
@@ -1152,7 +1190,8 @@ def manager_create_zone(request: Request, name: str = Form(...)):
     con.commit()
     zone_id = cur.lastrowid
     con.close()
-    message = urllib.parse.quote(f'Zona "{name}" creata correttamente.')
+    lang = public_language(request)
+    message = urllib.parse.quote(f'Bereich "{name}" wurde erstellt.' if lang == 'de' else f'Zona "{name}" creata correttamente.')
     return RedirectResponse(f'/manager/zones?message={message}&created={zone_id}', status_code=303)
 
 
@@ -1168,9 +1207,10 @@ def manager_zone_detail(request: Request, zone_id: int):
     if not zone:
         raise HTTPException(404, 'Zona non trovata')
     url = public_url_for(zone)
-    active_label = 'Disattiva zona' if zone['active'] else 'Attiva zona'
-    delete_message = esc(f'Eliminare definitivamente la zona {zone["name"]}, i suoi {ticket_count} ticket e tutte le foto?')
-    body = f'''<div class="grid"><div class="card span-7"><h2>{esc(zone['name'])}</h2><p><a href="{esc(url)}" target="_blank">{esc(url)}</a></p><img class="qr" src="/manager/zone/{zone_id}/qr"><div class="actions" style="margin-top:12px"><a class="btn" href="/manager/zone/{zone_id}/qr?download=1">Scarica QR</a><button onclick="window.print()">Stampa</button><form method="post" action="/manager/zone/{zone_id}/toggle"><button type="submit">{active_label}</button></form><form method="post" action="/manager/zone/{zone_id}/regenerate" onsubmit="return confirm('Il vecchio QR smetterà subito di funzionare. Continuare?')"><button class="danger" type="submit">Rigenera QR</button></form></div></div><div class="card span-5"><h2>Modifica zona</h2><form method="post" action="/manager/zone/{zone_id}/rename"><label>Nome della zona</label><input name="name" value="{esc(zone['name'])}" maxlength="80" required><button>Salva nome</button></form><hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h2>Elimina zona</h2><p class="muted">Ticket collegati: {ticket_count}. Eliminando la zona saranno eliminati anche i suoi ticket e tutte le fotografie.</p><form method="post" action="/manager/zone/{zone_id}/delete" data-confirm="{delete_message}" onsubmit="return confirm(this.dataset.confirm)"><button class="danger">Elimina zona</button></form></div></div>'''
+    active_label = manager_text(lang, 'disable_zone') if zone['active'] else manager_text(lang, 'enable_zone')
+    delete_message = esc((f'Bereich {zone["name"]}, seine {ticket_count} Tickets und alle Fotos endgültig löschen?' if lang == 'de' else f'Eliminare definitivamente la zona {zone["name"]}, i suoi {ticket_count} ticket e tutte le foto?'))
+    regenerate_message = 'Der alte QR-Code funktioniert danach nicht mehr. Fortfahren?' if lang == 'de' else 'Il vecchio QR smetterà subito di funzionare. Continuare?'
+    body = f'''<div class="grid"><div class="card span-7"><h2>{esc(zone['name'])}</h2><p><a href="{esc(url)}" target="_blank">{esc(url)}</a></p><img class="qr" src="/manager/zone/{zone_id}/qr"><div class="actions" style="margin-top:12px"><a class="btn" href="/manager/zone/{zone_id}/qr?download=1">{manager_text(lang, 'download_qr')}</a><button onclick="window.print()">{manager_text(lang, 'print')}</button><form method="post" action="/manager/zone/{zone_id}/toggle"><button type="submit">{active_label}</button></form><form method="post" action="/manager/zone/{zone_id}/regenerate" data-confirm="{esc(regenerate_message)}" onsubmit="return confirm(this.dataset.confirm)"><button class="danger" type="submit">{manager_text(lang, 'regenerate_qr')}</button></form></div></div><div class="card span-5"><h2>{manager_text(lang, 'edit_zone')}</h2><form method="post" action="/manager/zone/{zone_id}/rename"><label>{manager_text(lang, 'zone_name')}</label><input name="name" value="{esc(zone['name'])}" maxlength="80" required><button>{manager_text(lang, 'save_name')}</button></form><hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h2>{manager_text(lang, 'delete_zone')}</h2><p class="muted">{manager_text(lang, 'linked_tickets')}: {ticket_count}. {manager_text(lang, 'delete_zone_help')}</p><form method="post" action="/manager/zone/{zone_id}/delete" data-confirm="{delete_message}" onsubmit="return confirm(this.dataset.confirm)"><button class="danger">{manager_text(lang, 'delete_zone')}</button></form></div></div>'''
     return page(zone['name'], body, manager=True, lang=lang, back_url='/manager/zones')
 
 
@@ -1275,8 +1315,9 @@ def manager_ticket_detail(request: Request, ticket_id: int):
     priority_notice = f'<div class="priority-alert">{priority_dot(ticket)} {manager_text(lang, "priority").upper()} {esc(priority_labels.get(ticket["priority"], ticket["priority"]))}</div>' if ticket_priority_class(ticket) else ''
     delete_form = ''
     if ticket['status'] == 'Risolto':
-        delete_form = f'''<form method="post" action="/manager/ticket/{ticket_id}/delete" onsubmit="return confirm('Eliminare definitivamente il ticket e tutte le foto?')"><button type="submit" class="danger">{manager_text(lang, 'delete')}</button></form>'''
-    body = f'''{priority_notice}<div class="public-card"><h1>{esc(ticket['ticket_code'])}</h1><p><b>{manager_text(lang, 'zone')}:</b> {esc(ticket['zone_name'])}</p><p><b>{manager_text(lang, 'reporter')}:</b> {esc(ticket['reporter_name'])}</p><p><b>{manager_text(lang, 'category')}:</b> {esc(ticket['category'])}</p><h2>{manager_text(lang, 'original')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_original'])}</p><h2>{manager_text(lang, 'italian')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_it'] or '—')}</p><h2>{manager_text(lang, 'german')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_de'] or '—')}</p><form method="post" action="/manager/ticket/{ticket_id}/update"><label>{manager_text(lang, 'status')}</label><select name="status">{status_options}</select><label>{manager_text(lang, 'priority')}</label><select name="priority">{priority_options}</select><label>{manager_text(lang, 'notes')}</label><textarea name="resolution_notes" maxlength="4000">{esc(ticket['resolution_notes'] or '')}</textarea><button type="submit">{manager_text(lang, 'save')}</button></form><h2 style="margin-top:22px">{manager_text(lang, 'photos')}</h2><div class="photos">{photos}</div><div style="margin-top:22px">{delete_form}</div></div>'''
+        confirm_delete = 'Ticket und alle Fotos endgültig löschen?' if lang == 'de' else 'Eliminare definitivamente il ticket e tutte le foto?'
+        delete_form = f'''<form method="post" action="/manager/ticket/{ticket_id}/delete" data-confirm="{esc(confirm_delete)}" onsubmit="return confirm(this.dataset.confirm)"><button type="submit" class="danger">{manager_text(lang, 'delete')}</button></form>'''
+    body = f'''{priority_notice}<div class="public-card"><h1>{esc(ticket['ticket_code'])}</h1><p><b>{manager_text(lang, 'zone')}:</b> {esc(ticket['zone_name'])}</p><p><b>{manager_text(lang, 'reporter')}:</b> {esc(ticket['reporter_name'])}</p><p><b>{manager_text(lang, 'category')}:</b> {esc(manager_category_text(lang, ticket['category']))}</p><h2>{manager_text(lang, 'original')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_original'])}</p><h2>{manager_text(lang, 'italian')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_it'] or '—')}</p><h2>{manager_text(lang, 'german')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_de'] or '—')}</p><form method="post" action="/manager/ticket/{ticket_id}/update"><label>{manager_text(lang, 'status')}</label><select name="status">{status_options}</select><label>{manager_text(lang, 'priority')}</label><select name="priority">{priority_options}</select><label>{manager_text(lang, 'notes')}</label><textarea name="resolution_notes" maxlength="4000">{esc(ticket['resolution_notes'] or '')}</textarea><button type="submit">{manager_text(lang, 'save')}</button></form><h2 style="margin-top:22px">{manager_text(lang, 'photos')}</h2><div class="photos">{photos}</div><div style="margin-top:22px">{delete_form}</div></div>'''
     return page(ticket['ticket_code'], body, manager=True, lang=lang, back_url='/manager/tickets')
 
 
