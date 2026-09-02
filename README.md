@@ -2,7 +2,7 @@
 
 Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ristorante e delle camere del personale.
 
-## Funzioni della versione 1.2.2
+## Funzioni della versione 1.2.3
 
 - Interfaccia amministrativa dentro Home Assistant tramite Ingress.
 - Creazione zone personalizzate.
@@ -23,6 +23,7 @@ Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ris
 - Apertura diretta del ticket corretto toccando la notifica, tramite collegamento firmato e temporaneo.
 - Gestione di più telefoni dalle Impostazioni: aggiunta, rinomina, modifica dell'entità, attivazione, prova ed eliminazione.
 - Rilevamento automatico dei dispositivi mobili registrati in Home Assistant, con diagnostica del collegamento e aggiunta manuale di riserva.
+- Errori della password mostrati nella pagina del QR in italiano o tedesco, senza schermate JSON tecniche.
 - Attivazione/disattivazione delle zone e rigenerazione dei QR.
 - Download e stampa dei QR.
 - Protezione contro tentativi ripetuti del PIN.
