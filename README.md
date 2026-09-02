@@ -2,7 +2,7 @@
 
 Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ristorante e delle camere del personale.
 
-## Funzioni già presenti nella versione 0.1.0
+## Funzioni della versione 1.0.0
 
 - Interfaccia amministrativa dentro Home Assistant tramite Ingress.
 - Creazione zone personalizzate.
@@ -14,7 +14,17 @@ Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ris
 - Fino a 5 immagini per ticket, massimo 8 MB ciascuna.
 - Database SQLite persistente in `/data`.
 - Ticket con codice progressivo e stato iniziale `Nuovo`.
-- Campi già predisposti per traduzione automatica in italiano.
+- Dashboard con conteggi e ticket recenti.
+- Ricerca e filtro dei ticket, con esportazione CSV.
+- Gestione stato, priorità, note interne e traduzione italiana.
+- Traduzione automatica opzionale tramite endpoint compatibile LibreTranslate.
+- Visualizzazione protetta delle fotografie nell'interfaccia Ingress.
+- Notifiche tramite un servizio `notify` di Home Assistant.
+- Attivazione/disattivazione delle zone e rigenerazione dei QR.
+- Download e stampa dei QR.
+- Protezione contro tentativi ripetuti del PIN.
+- Backup ZIP di database e fotografie.
+- Migrazione automatica dei dati dalle versioni precedenti.
 
 ## Installazione in Home Assistant
 
@@ -35,14 +45,22 @@ Apri l'interfaccia dell'add-on da Home Assistant e:
 3. nelle opzioni add-on imposta `public_base_url` quando sarà pronto l'indirizzo HTTPS pubblico definitivo;
 4. genera il QR della zona.
 
-La porta `8099` è riservata alla gestione privata via Ingress. La porta `8080` serve esclusivamente il portale pubblico delle segnalazioni.
+Per questa installazione l'URL pubblico è:
 
-## Prossimi passi
+`https://homeassistant.9ceepe4a2ca5c03h.myfritz.net`
 
-- traduzione locale automatica verso italiano;
-- notifica Home Assistant solo al dispositivo configurato;
-- cambio stato ticket;
-- visualizzazione sicura delle foto;
-- blocco tentativi PIN e rate limiting;
-- rigenerazione/revoca QR;
-- esportazione e stampa QR.
+Non aggiungere la porta `8089` all'URL stampato nel QR: il reverse proxy riceve HTTPS sulla porta 443 e inoltra internamente al portale.
+
+La porta `8099` è riservata alla gestione privata via Ingress. La porta `8080` del container serve esclusivamente il portale pubblico ed è pubblicata da Home Assistant sulla porta host configurata (nel vostro caso `8089`). Le regole FRITZ!Box già necessarie al collegamento non devono essere rimosse.
+
+## Notifiche
+
+Nelle opzioni dell'add-on, `notify_service` deve contenere il nome del servizio senza il prefisso `notify.`. Esempio: per `notify.mobile_app_iphone`, inserire `mobile_app_iphone`. La pagina **Impostazioni** contiene un pulsante di prova.
+
+## Traduzione
+
+Per tradurre automaticamente le descrizioni, inserire in `translation_url` l'endpoint completo di un servizio compatibile LibreTranslate (per esempio `https://server/translate`) e, se richiesto, la chiave in `translation_api_key`. Se il servizio non è configurato o non risponde, il ticket viene comunque creato e la traduzione può essere inserita manualmente.
+
+## Aggiornamento
+
+Aggiornare l'add-on senza disinstallarlo. Database, PIN, zone, QR, ticket e fotografie restano in `/data` e vengono conservati. Dopo l'aggiornamento verificare `/health`, la dashboard e un QR esistente.
