@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.3.0'
+APP_VERSION = '1.3.1'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -483,11 +483,13 @@ def brand_logo():
     </svg></div>'''
 
 
-def page(title: str, body: str, public: bool = False, lang: str = 'it', back_url: str = '', close_on_back: bool = False):
-    shell_class = 'public-shell' if public else 'admin-shell'
-    back_label = public_text(lang, 'back') if public else 'Indietro'
-    if public and back_url:
+def page(title: str, body: str, public: bool = False, lang: str = 'it', back_url: str = '', close_on_back: bool = False, manager: bool = False):
+    shell_class = 'admin-shell' if manager else ('public-shell' if public else 'admin-shell')
+    back_label = public_text(lang, 'back') if public or manager else 'Indietro'
+    if (public or manager) and back_url:
         back = f'<a class="btn back-btn" href="{esc(back_url)}">← {back_label}</a>'
+    elif manager:
+        back = ''
     elif public and close_on_back:
         back = f'<button type="button" class="back-btn" onclick="closePublicPage()">← {back_label}</button>'
     else:
@@ -496,7 +498,7 @@ def page(title: str, body: str, public: bool = False, lang: str = 'it', back_url
 :root{{--olive:#6e7d08;--olive-dark:#586406;--cream:#fbfaf5;--ink:#17212b;--muted:#6b7280;--line:#e5e7eb;--danger:#c62828;--card:#fff;--nav:#18252d;--shadow:0 4px 18px #00000012}}
 *{{box-sizing:border-box}}html,body{{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:#eef1f2}}
 body{{overflow-x:hidden}}button,input,textarea,select{{font:inherit}}a{{color:inherit}}.brand-logo{{width:230px;max-width:100%;margin:0 auto}}.brand-logo svg{{display:block;width:100%;height:auto}}
-.page{{min-height:100vh}}.admin-shell{{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:100vh}}.sidebar{{background:var(--nav);color:#fff;padding:18px 14px;position:sticky;top:0;height:100vh}}.sidebar .brand-wrap{{background:#fff;border-radius:15px;padding:10px;margin-bottom:18px}}.side-link{{display:block;text-decoration:none;padding:11px 12px;border-radius:9px;margin:5px 0;color:#f6f7f8}}.side-link.active,.side-link:hover{{background:var(--olive)}}.side-foot{{position:absolute;bottom:18px;left:22px;right:22px;color:#cfd8dc;font-size:12px;text-align:center;border-top:1px solid #ffffff25;padding-top:12px}}
+.page{{min-height:100vh}}.admin-shell{{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:100vh}}.sidebar{{background:var(--nav);color:#fff;padding:18px 14px;position:sticky;top:0;height:100vh}}.sidebar .brand-wrap{{background:#fff;border-radius:15px;padding:10px;margin-bottom:18px}}.side-link{{display:block;text-decoration:none;padding:11px 12px;border-radius:9px;margin:5px 0;color:#f6f7f8}}.side-link.active,.side-link:hover{{background:var(--olive)}}.side-link.disabled{{opacity:.42;cursor:not-allowed;pointer-events:none}}.side-foot{{position:absolute;bottom:18px;left:22px;right:22px;color:#cfd8dc;font-size:12px;text-align:center;border-top:1px solid #ffffff25;padding-top:12px}}
 .content{{min-width:0}}.topbar{{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:16px 22px;background:#fff;border-bottom:1px solid var(--line)}}.topbar h1{{font-size:24px;margin:0}}.topbar small{{color:var(--muted)}}.status-dot{{padding:7px 11px;background:#eef7ea;border-radius:999px;color:#2e6c2f;font-size:13px;white-space:nowrap}}main{{padding:18px;max-width:1480px;margin:0 auto;width:100%}}.nav{{display:flex;align-items:center;gap:10px;margin:0 0 12px}}
 .card{{background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--shadow);border:1px solid #e9ecef;min-width:0;overflow-wrap:anywhere}}h1,h2,h3{{margin-top:0}}h2{{font-size:20px}}.grid{{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}}.span-3{{grid-column:span 3}}.span-4{{grid-column:span 4}}.span-5{{grid-column:span 5}}.span-6{{grid-column:span 6}}.span-7{{grid-column:span 7}}.span-8{{grid-column:span 8}}.span-12{{grid-column:span 12}}.metric{{display:flex;align-items:center;gap:13px}}.metric-icon{{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#eef1d8;color:var(--olive);font-size:20px}}.metric strong{{font-size:28px;display:block}}.muted{{color:var(--muted);font-size:14px}}.pill{{display:inline-block;padding:4px 9px;border-radius:999px;background:#eef2f7;font-size:12px}}.pill.open{{background:#fff2dd;color:#a75d00}}.pill.done{{background:#e8f6e5;color:#2f7c35}}.priority-dot{{display:inline-block;width:13px;height:13px;border-radius:50%;background:#f44336;box-shadow:0 0 0 4px #f4433630;margin-right:9px;vertical-align:-1px}}.priority-high td{{background:#ffebee}}.priority-high td:first-child{{box-shadow:inset 6px 0 #d32f2f}}.priority-urgent td{{background:#c62828;color:#fff;border-color:#e57373}}.priority-urgent a{{color:#fff}}.priority-urgent .pill{{background:#fff;color:#a91515}}.priority-urgent .priority-dot{{background:#fff;box-shadow:0 0 0 4px #ffffff45}}.priority-alert{{background:#c62828;color:#fff;padding:14px 16px;border-radius:12px;margin-bottom:14px;font-weight:800;font-size:17px}}
 input,textarea,select{{width:100%;padding:13px 14px;margin:7px 0 15px;border:1px solid #cfd6dc;border-radius:10px;background:#fff;font-size:16px}}textarea{{resize:vertical;min-height:130px}}label{{font-weight:600;font-size:14px}}button,.btn{{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:10px;padding:12px 16px;background:var(--olive);color:#fff;text-decoration:none;font-weight:700;cursor:pointer;min-height:44px}}button:hover,.btn:hover{{background:var(--olive-dark)}}.back-btn{{background:#f1f3f4;color:#263238}}.back-btn:hover{{background:#e5e7e9}}.danger{{background:var(--danger)}}.inline{{display:inline-block;margin:4px 8px 4px 0}}.actions{{display:flex;gap:9px;flex-wrap:wrap}}.table-wrap{{overflow:auto;width:100%;-webkit-overflow-scrolling:touch}}table{{width:100%;border-collapse:collapse;min-width:620px}}th,td{{text-align:left;padding:11px 9px;border-bottom:1px solid var(--line);vertical-align:middle}}th{{font-size:13px;color:#4b5563}}img.qr{{width:240px;max-width:100%;height:auto}}.zone-row{{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}}.zone-row:last-child{{border-bottom:0}}.photos{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}}.photos a{{display:block}}.photos img{{width:100%;height:160px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}}.notice{{padding:12px;border-radius:10px;background:#eef7ea;margin-bottom:14px}}.warning{{background:#fff3dc}}.filters{{display:grid;grid-template-columns:2fr 1fr auto;gap:8px;align-items:end}}.filters input,.filters select{{margin-bottom:0}}
@@ -504,7 +506,7 @@ input,textarea,select{{width:100%;padding:13px 14px;margin:7px 0 15px;border:1px
 @media(max-width:1000px){{.admin-shell{{grid-template-columns:1fr}}.sidebar{{height:auto;position:relative;padding:10px 12px;display:flex;align-items:center;gap:8px;overflow-x:auto}}.sidebar .brand-wrap{{min-width:155px;margin:0;padding:5px}}.sidebar .brand-logo{{width:145px}}.side-link{{white-space:nowrap;margin:0}}.side-foot{{display:none}}.span-3{{grid-column:span 6}}.span-4,.span-5,.span-6,.span-7,.span-8{{grid-column:span 12}}}}
 @media(max-width:640px){{.topbar{{padding:12px 14px}}.topbar h1{{font-size:20px}}.status-dot{{display:none}}main{{padding:12px}}.grid{{gap:10px}}.span-3,.span-4,.span-5,.span-6,.span-7,.span-8,.span-12{{grid-column:span 12}}.card{{padding:15px;border-radius:14px}}.metric strong{{font-size:24px}}.public-shell{{padding:14px}}.public-card{{padding:18px 15px}}.public-brand{{max-width:88%;width:270px}}.actions button,.actions .btn{{flex:1 1 140px}}.nav{{margin-bottom:8px}}.filters{{grid-template-columns:1fr}}}}
 </style><script>function adminGo(path){{const marker='/api/hassio_ingress/';const current=location.pathname;const start=current.indexOf(marker);if(start>=0){{const after=start+marker.length;const slash=current.indexOf('/',after);const base=slash>=0?current.slice(0,slash+1):current+'/';location.href=base+path;}}else{{location.href='/'+path;}}return false;}}function closePublicPage(){{window.close();setTimeout(function(){{if(!document.hidden&&history.length>1)history.back();}},180);}}</script></head><body><div class="page {shell_class}">'''+(
-    f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="./" onclick="return adminGo('')">⌂ Dashboard</a><a class="side-link" href="tickets" onclick="return adminGo('tickets')">☷ Ticket</a><a class="side-link" href="zones" onclick="return adminGo('zones')">⌖ Zone / QR</a><a class="side-link" href="settings" onclick="return adminGo('settings')">⚙ Impostazioni</a><div class="side-foot">Hausmeister Carellas<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● Add-on in esecuzione</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if not public else f'''<div class="public-wrap"><div class="public-brand">{brand_logo()}</div><div class="nav">{back}</div>{body}</div>''')+'''</div></body></html>'''
+    f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="/manager">⌂ Dashboard</a><a class="side-link" href="/manager/tickets">☷ {manager_text(lang, 'tickets')}</a><a class="side-link" href="/manager/zones">⌖ Zone / QR</a><span class="side-link disabled" aria-disabled="true" title="Riservato all'amministratore">⚙ Impostazioni</span><a class="side-link" href="/manager/logout">⇥ {manager_text(lang, 'logout')}</a><div class="side-foot">{manager_text(lang, 'portal')}<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● {manager_text(lang, 'portal')}</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if manager else f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="./" onclick="return adminGo('')">⌂ Dashboard</a><a class="side-link" href="tickets" onclick="return adminGo('tickets')">☷ Ticket</a><a class="side-link" href="zones" onclick="return adminGo('zones')">⌖ Zone / QR</a><a class="side-link" href="settings" onclick="return adminGo('settings')">⚙ Impostazioni</a><div class="side-foot">Hausmeister Carellas<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● Add-on in esecuzione</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if not public else f'''<div class="public-wrap"><div class="public-brand">{brand_logo()}</div><div class="nav">{back}</div>{body}</div>''')+'''</div></body></html>'''
 
 
 def session_zone(request: Request, token: str):
@@ -1073,23 +1075,182 @@ def manager_home(request: Request, message: str = ''):
         return RedirectResponse('/manager/login', status_code=303)
     lang = public_language(request)
     con = db()
-    tickets = con.execute('SELECT t.*, z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id ORDER BY t.id DESC').fetchall()
+    zones = con.execute('SELECT * FROM zones ORDER BY name').fetchall()
+    tickets = con.execute('SELECT t.*, z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id ORDER BY t.id DESC LIMIT 50').fetchall()
+    counts = {row['status']: row['n'] for row in con.execute('SELECT status, COUNT(*) n FROM tickets GROUP BY status').fetchall()}
+    total = con.execute('SELECT COUNT(*) n FROM tickets').fetchone()['n']
     con.close()
-    status_labels = {
-        'it': {'Nuovo': 'Nuovo', 'Preso in carico': 'Preso in carico', 'In lavorazione': 'In lavorazione', 'Da verificare': 'Da verificare', 'Risolto': 'Risolto'},
-        'de': {'Nuovo': 'Neu', 'Preso in carico': 'Übernommen', 'In lavorazione': 'In Bearbeitung', 'Da verificare': 'Zu prüfen', 'Risolto': 'Erledigt'},
-    }[lang]
-    priority_labels = {'it': {'Bassa': 'Bassa', 'Normale': 'Normale', 'Alta': 'Alta', 'Urgente': 'Urgente'}, 'de': {'Bassa': 'Niedrig', 'Normale': 'Normal', 'Alta': 'Hoch', 'Urgente': 'Dringend'}}[lang]
-    cards = ''
-    for ticket in tickets:
-        alert = priority_dot(ticket)
-        border = 'border:2px solid #c62828;' if ticket_priority_class(ticket) else ''
-        cards += f'''<a href="/manager/ticket/{ticket['id']}" style="display:block;text-decoration:none;margin-bottom:12px"><div class="card" style="{border}"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><h2 style="margin-bottom:8px">{alert}{esc(ticket['ticket_code'])}</h2><p style="margin:4px 0"><b>{manager_text(lang, 'zone')}:</b> {esc(ticket['zone_name'])}</p><p style="margin:4px 0"><b>{manager_text(lang, 'category')}:</b> {esc(ticket['category'])}</p></div><span class="pill {'done' if ticket['status'] == 'Risolto' else 'open'}">{esc(status_labels.get(ticket['status'], ticket['status']))}</span></div><p style="margin-bottom:0"><b>{manager_text(lang, 'priority')}:</b> {esc(priority_labels.get(ticket['priority'] or 'Normale', ticket['priority'] or 'Normale'))}</p></div></a>'''
-    if not cards:
-        cards = f'<div class="public-card"><p>{manager_text(lang, "no_tickets")}</p></div>'
+    labels = ({'total': 'Tickets gesamt', 'open': 'Offen', 'work': 'In Bearbeitung', 'done': 'Erledigt', 'recent': 'Aktuelle Tickets', 'all': 'Alle Tickets anzeigen', 'zones': 'Bereiche', 'active': 'Aktiv', 'inactive': 'Deaktiviert', 'none': 'Keine Bereiche', 'reporter': 'Gemeldet von'} if lang == 'de' else {'total': 'Totale ticket', 'open': 'Aperti', 'work': 'In lavorazione', 'done': 'Risolti', 'recent': 'Ticket recenti', 'all': 'Vedi tutti i ticket', 'zones': 'Zone', 'active': 'Attiva', 'inactive': 'Disattivata', 'none': 'Nessuna zona', 'reporter': 'Segnalato da'})
+    open_count = counts.get('Nuovo', 0)
+    work_count = counts.get('Preso in carico', 0) + counts.get('In lavorazione', 0)
+    done_count = counts.get('Risolto', 0)
+    zone_rows = ''.join(f'<div class="zone-row"><div><b>{esc(z["name"])}</b><br><span class="muted">{labels["active"] if z["active"] else labels["inactive"]}</span></div><a class="btn" href="/manager/zone/{z["id"]}">QR →</a></div>' for z in zones) or f'<p class="muted">{labels["none"]}</p>'
+    ticket_rows = ''.join(f'<tr class="{ticket_priority_class(t)}"><td><a href="/manager/ticket/{t["id"]}"><b>{esc(t["ticket_code"])}</b></a></td><td>{esc(t["zone_name"])}</td><td>{esc(t["reporter_name"])}</td><td>{priority_dot(t)}<b>{esc(t["priority"] or "Normale")}</b></td><td><span class="pill {"done" if t["status"] == "Risolto" else "open"}">{esc(t["status"])}</span></td></tr>' for t in tickets) or f'<tr><td colspan="5">{manager_text(lang, "no_tickets")}</td></tr>'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    body = f'''<div class="actions" style="justify-content:space-between;margin-bottom:14px"><h1 style="margin:0">{manager_text(lang, 'tickets')}</h1><a class="btn danger" href="/manager/logout">{manager_text(lang, 'logout')}</a></div>{notice}{cards}'''
-    return page(manager_text(lang, 'portal'), body, public=True, lang=lang, close_on_back=True)
+    body = f'''{notice}<div class="grid">
+      <div class="card span-3"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">{labels['total']}</span><strong>{total}</strong></div></div></div>
+      <div class="card span-3"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">{labels['open']}</span><strong>{open_count}</strong></div></div></div>
+      <div class="card span-3"><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">{labels['work']}</span><strong>{work_count}</strong></div></div></div>
+      <div class="card span-3"><div class="metric"><div class="metric-icon">✓</div><div><span class="muted">{labels['done']}</span><strong>{done_count}</strong></div></div></div>
+      <div class="card span-8"><h2>{labels['recent']}</h2><div class="table-wrap"><table><tr><th>ID</th><th>{manager_text(lang, 'zone')}</th><th>{labels['reporter']}</th><th>{manager_text(lang, 'priority')}</th><th>{manager_text(lang, 'status')}</th></tr>{ticket_rows}</table></div><p><a class="btn" href="/manager/tickets">{labels['all']}</a></p></div>
+      <div class="card span-4"><h2>{labels['zones']}</h2>{zone_rows}</div>
+    </div>'''
+    return page('Dashboard', body, manager=True, lang=lang)
+
+
+@public_app.get('/manager/tickets', response_class=HTMLResponse)
+def manager_tickets_page(request: Request, q: str = '', status: str = '', message: str = ''):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    lang = public_language(request)
+    query = '''SELECT t.*, z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id WHERE 1=1'''
+    params = []
+    if q.strip():
+        query += ' AND (t.ticket_code LIKE ? OR t.reporter_name LIKE ? OR t.description_original LIKE ? OR z.name LIKE ?)'
+        term = f'%{q.strip()}%'
+        params.extend([term] * 4)
+    if status in STATUSES:
+        query += ' AND t.status=?'
+        params.append(status)
+    query += ' ORDER BY t.id DESC'
+    con = db()
+    tickets = con.execute(query, params).fetchall()
+    con.close()
+    rows = ''.join(f'''<tr class="{ticket_priority_class(t)}"><td><a href="/manager/ticket/{t['id']}"><b>{esc(t['ticket_code'])}</b></a></td><td>{esc(t['zone_name'])}</td><td>{esc(t['reporter_name'])}</td><td>{esc(t['category'])}</td><td>{priority_dot(t)}<b>{esc(t['priority'] or 'Normale')}</b></td><td><span class="pill {'done' if t['status'] == 'Risolto' else 'open'}">{esc(t['status'])}</span></td></tr>''' for t in tickets) or f'<tr><td colspan="6">{manager_text(lang, "no_tickets")}</td></tr>'
+    all_statuses = 'Alle Status' if lang == 'de' else 'Tutti gli stati'
+    search_label = 'Suchen' if lang == 'de' else 'Cerca'
+    search_hint = 'Code, Bereich, Name oder Beschreibung' if lang == 'de' else 'Codice, zona, nome o descrizione'
+    options = f'<option value="">{all_statuses}</option>' + ''.join(f'<option value="{esc(s)}" {"selected" if status == s else ""}>{esc(s)}</option>' for s in STATUSES)
+    notice = f'<div class="notice">{esc(message)}</div>' if message else ''
+    body = f'''{notice}<div class="card"><form class="filters" method="get"><div><label>{search_label}</label><input name="q" value="{esc(q)}" placeholder="{search_hint}"></div><div><label>{manager_text(lang, 'status')}</label><select name="status">{options}</select></div><button>{search_label}</button></form><div class="table-wrap" style="margin-top:14px"><table><tr><th>ID</th><th>{manager_text(lang, 'zone')}</th><th>{manager_text(lang, 'reporter')}</th><th>{manager_text(lang, 'category')}</th><th>{manager_text(lang, 'priority')}</th><th>{manager_text(lang, 'status')}</th></tr>{rows}</table></div></div>'''
+    return page(manager_text(lang, 'tickets'), body, manager=True, lang=lang)
+
+
+@public_app.get('/manager/zones', response_class=HTMLResponse)
+def manager_zones_page(request: Request, message: str = '', created: int = 0):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    lang = public_language(request)
+    con = db()
+    zones = con.execute('SELECT z.*, COUNT(t.id) ticket_count FROM zones z LEFT JOIN tickets t ON t.zone_id=z.id GROUP BY z.id ORDER BY z.name').fetchall()
+    con.close()
+    rows = ''.join(f'''<tr{' class="new-zone"' if z['id'] == created else ''}><td><b>{esc(z['name'])}</b></td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class="btn" href="/manager/zone/{z['id']}">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan="4">Nessuna zona</td></tr>'
+    notice = f'<div class="notice">{esc(message)}</div>' if message else ''
+    body = f'''{notice}<style>.new-zone td{{background:#f1f8df}}</style><div class="grid"><div class="card span-8"><h2>Zone esistenti</h2><div class="table-wrap"><table><tr><th>Zona</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2><form method="post" action="/manager/zone"><label>Nome</label><input name="name" maxlength="80" required placeholder="Es. Cucina"><button>Crea zona e QR</button></form></div></div>'''
+    return page('Zone / QR', body, manager=True, lang=lang)
+
+
+@public_app.post('/manager/zone')
+def manager_create_zone(request: Request, name: str = Form(...)):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    name = name.strip()
+    if not name or len(name) > 80:
+        raise HTTPException(400, 'Nome zona non valido')
+    con = db()
+    cur = con.execute('INSERT INTO zones(name,token,created_at) VALUES(?,?,?)', (name, secrets.token_urlsafe(18), now_iso()))
+    con.commit()
+    zone_id = cur.lastrowid
+    con.close()
+    message = urllib.parse.quote(f'Zona "{name}" creata correttamente.')
+    return RedirectResponse(f'/manager/zones?message={message}&created={zone_id}', status_code=303)
+
+
+@public_app.get('/manager/zone/{zone_id}', response_class=HTMLResponse)
+def manager_zone_detail(request: Request, zone_id: int):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    lang = public_language(request)
+    con = db()
+    zone = con.execute('SELECT * FROM zones WHERE id=?', (zone_id,)).fetchone()
+    ticket_count = con.execute('SELECT COUNT(*) n FROM tickets WHERE zone_id=?', (zone_id,)).fetchone()['n']
+    con.close()
+    if not zone:
+        raise HTTPException(404, 'Zona non trovata')
+    url = public_url_for(zone)
+    active_label = 'Disattiva zona' if zone['active'] else 'Attiva zona'
+    delete_message = esc(f'Eliminare definitivamente la zona {zone["name"]}, i suoi {ticket_count} ticket e tutte le foto?')
+    body = f'''<div class="grid"><div class="card span-7"><h2>{esc(zone['name'])}</h2><p><a href="{esc(url)}" target="_blank">{esc(url)}</a></p><img class="qr" src="/manager/zone/{zone_id}/qr"><div class="actions" style="margin-top:12px"><a class="btn" href="/manager/zone/{zone_id}/qr?download=1">Scarica QR</a><button onclick="window.print()">Stampa</button><form method="post" action="/manager/zone/{zone_id}/toggle"><button type="submit">{active_label}</button></form><form method="post" action="/manager/zone/{zone_id}/regenerate" onsubmit="return confirm('Il vecchio QR smetterà subito di funzionare. Continuare?')"><button class="danger" type="submit">Rigenera QR</button></form></div></div><div class="card span-5"><h2>Modifica zona</h2><form method="post" action="/manager/zone/{zone_id}/rename"><label>Nome della zona</label><input name="name" value="{esc(zone['name'])}" maxlength="80" required><button>Salva nome</button></form><hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h2>Elimina zona</h2><p class="muted">Ticket collegati: {ticket_count}. Eliminando la zona saranno eliminati anche i suoi ticket e tutte le fotografie.</p><form method="post" action="/manager/zone/{zone_id}/delete" data-confirm="{delete_message}" onsubmit="return confirm(this.dataset.confirm)"><button class="danger">Elimina zona</button></form></div></div>'''
+    return page(zone['name'], body, manager=True, lang=lang, back_url='/manager/zones')
+
+
+@public_app.post('/manager/zone/{zone_id}/rename')
+def manager_zone_rename(request: Request, zone_id: int, name: str = Form(...)):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    name = name.strip()
+    if not name or len(name) > 80:
+        raise HTTPException(400, 'Nome zona non valido')
+    con = db()
+    con.execute('UPDATE zones SET name=? WHERE id=?', (name, zone_id))
+    con.commit()
+    con.close()
+    return RedirectResponse(f'/manager/zone/{zone_id}', status_code=303)
+
+
+@public_app.post('/manager/zone/{zone_id}/toggle')
+def manager_zone_toggle(request: Request, zone_id: int):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    con = db()
+    con.execute('UPDATE zones SET active=CASE active WHEN 1 THEN 0 ELSE 1 END WHERE id=?', (zone_id,))
+    con.commit()
+    con.close()
+    return RedirectResponse(f'/manager/zone/{zone_id}', status_code=303)
+
+
+@public_app.post('/manager/zone/{zone_id}/regenerate')
+def manager_zone_regenerate(request: Request, zone_id: int):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    con = db()
+    con.execute('UPDATE zones SET token=? WHERE id=?', (secrets.token_urlsafe(18), zone_id))
+    con.commit()
+    con.close()
+    return RedirectResponse(f'/manager/zone/{zone_id}', status_code=303)
+
+
+@public_app.post('/manager/zone/{zone_id}/delete')
+def manager_zone_delete(request: Request, zone_id: int):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    con = db()
+    zone = con.execute('SELECT name FROM zones WHERE id=?', (zone_id,)).fetchone()
+    if not zone:
+        con.close()
+        raise HTTPException(404, 'Zona non trovata')
+    files = con.execute('''SELECT f.stored_name FROM ticket_files f JOIN tickets t ON t.id=f.ticket_id WHERE t.zone_id=?''', (zone_id,)).fetchall()
+    con.execute('DELETE FROM ticket_files WHERE ticket_id IN (SELECT id FROM tickets WHERE zone_id=?)', (zone_id,))
+    con.execute('DELETE FROM tickets WHERE zone_id=?', (zone_id,))
+    con.execute('DELETE FROM zones WHERE id=?', (zone_id,))
+    con.commit()
+    con.close()
+    upload_root = UPLOAD_DIR.resolve()
+    for row in files:
+        path = (UPLOAD_DIR / row['stored_name']).resolve()
+        if path.parent == upload_root and path.is_file():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    return RedirectResponse('/manager/zones', status_code=303)
+
+
+@public_app.get('/manager/zone/{zone_id}/qr')
+def manager_zone_qr(request: Request, zone_id: int, download: int = 0):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    con = db()
+    zone = con.execute('SELECT * FROM zones WHERE id=?', (zone_id,)).fetchone()
+    con.close()
+    if not zone:
+        raise HTTPException(404, 'Zona non trovata')
+    image = qrcode.make(public_url_for(zone))
+    buf = io.BytesIO()
+    image.save(buf, format='PNG')
+    buf.seek(0)
+    disposition = 'attachment' if download else 'inline'
+    return StreamingResponse(buf, media_type='image/png', headers={'Content-Disposition': f'{disposition}; filename="zona-{zone_id}.png"'})
 
 
 @public_app.get('/manager/ticket/{ticket_id}', response_class=HTMLResponse)
@@ -1116,7 +1277,7 @@ def manager_ticket_detail(request: Request, ticket_id: int):
     if ticket['status'] == 'Risolto':
         delete_form = f'''<form method="post" action="/manager/ticket/{ticket_id}/delete" onsubmit="return confirm('Eliminare definitivamente il ticket e tutte le foto?')"><button type="submit" class="danger">{manager_text(lang, 'delete')}</button></form>'''
     body = f'''{priority_notice}<div class="public-card"><h1>{esc(ticket['ticket_code'])}</h1><p><b>{manager_text(lang, 'zone')}:</b> {esc(ticket['zone_name'])}</p><p><b>{manager_text(lang, 'reporter')}:</b> {esc(ticket['reporter_name'])}</p><p><b>{manager_text(lang, 'category')}:</b> {esc(ticket['category'])}</p><h2>{manager_text(lang, 'original')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_original'])}</p><h2>{manager_text(lang, 'italian')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_it'] or '—')}</p><h2>{manager_text(lang, 'german')}</h2><p style="white-space:pre-wrap">{esc(ticket['description_de'] or '—')}</p><form method="post" action="/manager/ticket/{ticket_id}/update"><label>{manager_text(lang, 'status')}</label><select name="status">{status_options}</select><label>{manager_text(lang, 'priority')}</label><select name="priority">{priority_options}</select><label>{manager_text(lang, 'notes')}</label><textarea name="resolution_notes" maxlength="4000">{esc(ticket['resolution_notes'] or '')}</textarea><button type="submit">{manager_text(lang, 'save')}</button></form><h2 style="margin-top:22px">{manager_text(lang, 'photos')}</h2><div class="photos">{photos}</div><div style="margin-top:22px">{delete_form}</div></div>'''
-    return page(ticket['ticket_code'], body, public=True, lang=lang, back_url='/manager')
+    return page(ticket['ticket_code'], body, manager=True, lang=lang, back_url='/manager/tickets')
 
 
 @public_app.post('/manager/ticket/{ticket_id}/update')
@@ -1142,7 +1303,7 @@ def manager_ticket_delete(request: Request, ticket_id: int):
         return RedirectResponse('/manager/login', status_code=303)
     code, deleted_photos = delete_resolved_ticket(ticket_id)
     message = f'Ticket {code} eliminato. Foto eliminate: {deleted_photos}.'
-    return RedirectResponse('/manager?message=' + urllib.parse.quote(message), status_code=303)
+    return RedirectResponse('/manager/tickets?message=' + urllib.parse.quote(message), status_code=303)
 
 
 @public_app.get('/manager/ticket/{ticket_id}/file/{file_id}')
