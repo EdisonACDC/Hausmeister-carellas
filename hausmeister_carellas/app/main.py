@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.1.3'
+APP_VERSION = '1.1.4'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -165,17 +165,22 @@ def notify_home_assistant(message: str, title: str = 'Hausmeister Carellas'):
 def translate_text(text: str, target: str):
     options = load_options()
     endpoint = (options.get('translation_url') or '').strip()
-    if not endpoint:
-        return None, 'pending'
-    payload = {'q': text, 'source': 'auto', 'target': target, 'format': 'text'}
-    api_key = (options.get('translation_api_key') or '').strip()
-    if api_key:
-        payload['api_key'] = api_key
-    request = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'}, method='POST')
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            data = json.loads(response.read().decode())
-        translated = (data.get('translatedText') or '').strip()
+        if endpoint:
+            payload = {'q': text, 'source': 'auto', 'target': target, 'format': 'text'}
+            api_key = (options.get('translation_api_key') or '').strip()
+            if api_key:
+                payload['api_key'] = api_key
+            request = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'}, method='POST')
+            with urllib.request.urlopen(request, timeout=20) as response:
+                data = json.loads(response.read().decode())
+            translated = (data.get('translatedText') or '').strip()
+        else:
+            query = urllib.parse.urlencode({'client': 'gtx', 'sl': 'auto', 'tl': target, 'dt': 't', 'q': text})
+            request = urllib.request.Request(f'https://translate.googleapis.com/translate_a/single?{query}', headers={'User-Agent': 'Hausmeister-Carellas/1.1'})
+            with urllib.request.urlopen(request, timeout=20) as response:
+                data = json.loads(response.read().decode())
+            translated = ''.join(part[0] for part in data[0] if part and part[0]).strip()
         return (translated, 'completed') if translated else (None, 'failed')
     except Exception:
         return None, 'failed'
@@ -520,7 +525,25 @@ def ticket_detail(ticket_id: int):
     if t['status'] == 'Risolto':
         photo_text = f' e le sue {len(files)} foto' if files else ''
         delete_form = f'''<hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h2>Elimina ticket</h2><p class="muted">Questa operazione libera spazio ma non può essere annullata.</p><form method="post" action="{ticket_id}/delete" onsubmit="return confirm('Eliminare definitivamente il ticket {esc(t['ticket_code'])}{photo_text}?')"><button class="danger" type="submit">Elimina ticket e foto</button></form>'''
-    return page(t['ticket_code'], f'''<div class="grid"><div class="card span-7"><h2>{esc(t["ticket_code"])}</h2><p><b>Zona:</b> {esc(t["zone_name"])}</p><p><b>Segnalato da:</b> {esc(t["reporter_name"])}</p><p><b>Categoria:</b> {esc(t["category"])}</p><h3>Descrizione originale</h3><p style="white-space:pre-wrap">{esc(t["description_original"])}</p><h3>Traduzione italiana</h3><p style="white-space:pre-wrap">{esc(t["description_it"] or "In attesa")}</p><h3>Traduzione tedesca / Deutsche Übersetzung</h3><p style="white-space:pre-wrap">{esc(t["description_de"] or "In attesa / Ausstehend")}</p><form method="post" action="{ticket_id}/translation"><label>Traduzione italiana</label><textarea name="description_it" maxlength="4000">{esc(t["description_it"] or "")}</textarea><label>Traduzione tedesca / Deutsche Übersetzung</label><textarea name="description_de" maxlength="4000">{esc(t["description_de"] or "")}</textarea><button>Salva traduzioni</button></form></div><div class="card span-5"><h2>Gestione</h2><form method="post" action="{ticket_id}/update"><label>Stato</label><select name="status">{status_options}</select><label>Priorità</label><select name="priority">{priority_options}</select><label>Note interne / soluzione</label><textarea name="resolution_notes" maxlength="4000">{esc(t["resolution_notes"] or "")}</textarea><button>Salva modifiche</button></form><h2 style="margin-top:22px">Foto</h2><div class="photos">{photos}</div>{delete_form}</div></div>''')
+    return page(t['ticket_code'], f'''<div class="grid"><div class="card span-7"><h2>{esc(t["ticket_code"])}</h2><p><b>Zona:</b> {esc(t["zone_name"])}</p><p><b>Segnalato da:</b> {esc(t["reporter_name"])}</p><p><b>Categoria:</b> {esc(t["category"])}</p><h3>Descrizione originale</h3><p style="white-space:pre-wrap">{esc(t["description_original"])}</p><form method="post" action="{ticket_id}/auto-translate" style="margin-bottom:18px"><button type="submit">Traduci ora in italiano e tedesco</button></form><h3>Traduzione italiana</h3><p style="white-space:pre-wrap">{esc(t["description_it"] or "In attesa")}</p><h3>Traduzione tedesca / Deutsche Übersetzung</h3><p style="white-space:pre-wrap">{esc(t["description_de"] or "In attesa / Ausstehend")}</p><form method="post" action="{ticket_id}/translation"><label>Correggi traduzione italiana</label><textarea name="description_it" maxlength="4000">{esc(t["description_it"] or "")}</textarea><label>Correggi traduzione tedesca / Deutsche Übersetzung</label><textarea name="description_de" maxlength="4000">{esc(t["description_de"] or "")}</textarea><button>Salva correzioni</button></form></div><div class="card span-5"><h2>Gestione</h2><form method="post" action="{ticket_id}/update"><label>Stato</label><select name="status">{status_options}</select><label>Priorità</label><select name="priority">{priority_options}</select><label>Note interne / soluzione</label><textarea name="resolution_notes" maxlength="4000">{esc(t["resolution_notes"] or "")}</textarea><button>Salva modifiche</button></form><h2 style="margin-top:22px">Foto</h2><div class="photos">{photos}</div>{delete_form}</div></div>''')
+
+
+@admin_app.post('/ticket/{ticket_id}/auto-translate')
+def ticket_auto_translate(ticket_id: int):
+    con = db()
+    ticket = con.execute('SELECT description_original,description_it,description_de FROM tickets WHERE id=?', (ticket_id,)).fetchone()
+    if not ticket:
+        con.close()
+        raise HTTPException(404, 'Ticket non trovato')
+    description_it, status_it = translate_text(ticket['description_original'], 'it')
+    description_de, status_de = translate_text(ticket['description_original'], 'de')
+    description_it = description_it or ticket['description_it']
+    description_de = description_de or ticket['description_de']
+    state = 'completed' if status_it == 'completed' and status_de == 'completed' else 'failed'
+    con.execute('UPDATE tickets SET description_it=?, description_de=?, translation_status=?, updated_at=? WHERE id=?', (description_it, description_de, state, now_iso(), ticket_id))
+    con.commit()
+    con.close()
+    return RedirectResponse(f'../{ticket_id}', status_code=303)
 
 
 @admin_app.post('/ticket/{ticket_id}/delete')
