@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.1.4'
+APP_VERSION = '1.1.5'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -165,8 +165,9 @@ def notify_home_assistant(message: str, title: str = 'Hausmeister Carellas'):
 def translate_text(text: str, target: str):
     options = load_options()
     endpoint = (options.get('translation_url') or '').strip()
-    try:
-        if endpoint:
+    errors = []
+    if endpoint:
+        try:
             payload = {'q': text, 'source': 'auto', 'target': target, 'format': 'text'}
             api_key = (options.get('translation_api_key') or '').strip()
             if api_key:
@@ -175,15 +176,44 @@ def translate_text(text: str, target: str):
             with urllib.request.urlopen(request, timeout=20) as response:
                 data = json.loads(response.read().decode())
             translated = (data.get('translatedText') or '').strip()
-        else:
-            query = urllib.parse.urlencode({'client': 'gtx', 'sl': 'auto', 'tl': target, 'dt': 't', 'q': text})
-            request = urllib.request.Request(f'https://translate.googleapis.com/translate_a/single?{query}', headers={'User-Agent': 'Hausmeister-Carellas/1.1'})
-            with urllib.request.urlopen(request, timeout=20) as response:
-                data = json.loads(response.read().decode())
-            translated = ''.join(part[0] for part in data[0] if part and part[0]).strip()
-        return (translated, 'completed') if translated else (None, 'failed')
-    except Exception:
-        return None, 'failed'
+            if translated:
+                delete_setting('translation_error')
+                return translated, 'completed'
+        except Exception as exc:
+            errors.append(f'Servizio configurato: {type(exc).__name__}: {exc}')
+    try:
+        query = urllib.parse.urlencode({'client': 'gtx', 'sl': 'auto', 'tl': target, 'dt': 't', 'q': text})
+        request = urllib.request.Request(f'https://translate.googleapis.com/translate_a/single?{query}', headers={'User-Agent': 'Hausmeister-Carellas/1.1'})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = json.loads(response.read().decode())
+        translated = ''.join(part[0] for part in data[0] if part and part[0]).strip()
+        if translated:
+            delete_setting('translation_error')
+            return translated, 'completed'
+    except Exception as exc:
+        errors.append(f'Google: {type(exc).__name__}: {exc}')
+    try:
+        lowered = f' {text.lower()} '
+        german_words = (' der ', ' die ', ' das ', ' ist ', ' nicht ', ' kaputt', ' defekt', ' wasser', ' ofen', ' kühlschrank', ' tür ', ' licht')
+        italian_words = (' il ', ' lo ', ' la ', ' è ', ' non ', ' rotto', ' guasto', ' acqua', ' forno', ' frigorifero', ' porta ', ' luce')
+        source = 'de' if any(word in lowered for word in german_words) else ('it' if any(word in lowered for word in italian_words) else 'en')
+        if source == target:
+            delete_setting('translation_error')
+            return text, 'completed'
+        query = urllib.parse.urlencode({'q': text, 'langpair': f'{source}|{target}', 'mt': 1})
+        request = urllib.request.Request(f'https://api.mymemory.translated.net/get?{query}', headers={'User-Agent': 'Hausmeister-Carellas/1.1'})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = json.loads(response.read().decode())
+        translated = (data.get('responseData', {}).get('translatedText') or '').strip()
+        if translated:
+            delete_setting('translation_error')
+            return translated, 'completed'
+    except Exception as exc:
+        errors.append(f'MyMemory: {type(exc).__name__}: {exc}')
+    error = ' | '.join(errors) or 'Nessun servizio di traduzione ha restituito un risultato'
+    set_setting('translation_error', error[:1000])
+    print(f'Translation error ({target}): {error}', flush=True)
+    return None, 'failed'
 
 
 def public_url_for(zone):
@@ -388,7 +418,7 @@ def settings_page(message: str = ''):
     group_url = group_public_url()
     base = options.get('public_base_url') or 'Non configurato'
     notify = options.get('notify_service') or 'Non configurato'
-    translation = options.get('translation_url') or 'Non configurata (inserimento manuale disponibile)'
+    translation = options.get('translation_url') or 'Automatica integrata (Google con MyMemory di riserva)'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
     return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Servizio notifiche:</b><br>{esc(notify)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">Questi valori si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p><form method="post" action="settings/test-notification"><button>Invia notifica di prova</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
 
@@ -521,11 +551,16 @@ def ticket_detail(ticket_id: int):
     photos = ''.join(f'<a href="{ticket_id}/file/{f["id"]}" target="_blank"><img src="{ticket_id}/file/{f["id"]}" alt="{esc(f["original_name"])}"><span class="muted">{esc(f["original_name"])}</span></a>' for f in files) or '<p class="muted">Nessuna foto</p>'
     status_options = ''.join(f'<option value="{esc(s)}" {"selected" if t["status"] == s else ""}>{esc(s)}</option>' for s in STATUSES)
     priority_options = ''.join(f'<option value="{esc(p)}" {"selected" if (t["priority"] or "Normale") == p else ""}>{esc(p)}</option>' for p in PRIORITIES)
+    translation_error = get_setting('translation_error', '')
+    translation_notice = (
+        f'<div class="notice warning"><b>Traduzione non riuscita:</b> {esc(translation_error)}</div>'
+        if t['translation_status'] == 'failed' and translation_error else ''
+    )
     delete_form = ''
     if t['status'] == 'Risolto':
         photo_text = f' e le sue {len(files)} foto' if files else ''
         delete_form = f'''<hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h2>Elimina ticket</h2><p class="muted">Questa operazione libera spazio ma non può essere annullata.</p><form method="post" action="{ticket_id}/delete" onsubmit="return confirm('Eliminare definitivamente il ticket {esc(t['ticket_code'])}{photo_text}?')"><button class="danger" type="submit">Elimina ticket e foto</button></form>'''
-    return page(t['ticket_code'], f'''<div class="grid"><div class="card span-7"><h2>{esc(t["ticket_code"])}</h2><p><b>Zona:</b> {esc(t["zone_name"])}</p><p><b>Segnalato da:</b> {esc(t["reporter_name"])}</p><p><b>Categoria:</b> {esc(t["category"])}</p><h3>Descrizione originale</h3><p style="white-space:pre-wrap">{esc(t["description_original"])}</p><form method="post" action="{ticket_id}/auto-translate" style="margin-bottom:18px"><button type="submit">Traduci ora in italiano e tedesco</button></form><h3>Traduzione italiana</h3><p style="white-space:pre-wrap">{esc(t["description_it"] or "In attesa")}</p><h3>Traduzione tedesca / Deutsche Übersetzung</h3><p style="white-space:pre-wrap">{esc(t["description_de"] or "In attesa / Ausstehend")}</p><form method="post" action="{ticket_id}/translation"><label>Correggi traduzione italiana</label><textarea name="description_it" maxlength="4000">{esc(t["description_it"] or "")}</textarea><label>Correggi traduzione tedesca / Deutsche Übersetzung</label><textarea name="description_de" maxlength="4000">{esc(t["description_de"] or "")}</textarea><button>Salva correzioni</button></form></div><div class="card span-5"><h2>Gestione</h2><form method="post" action="{ticket_id}/update"><label>Stato</label><select name="status">{status_options}</select><label>Priorità</label><select name="priority">{priority_options}</select><label>Note interne / soluzione</label><textarea name="resolution_notes" maxlength="4000">{esc(t["resolution_notes"] or "")}</textarea><button>Salva modifiche</button></form><h2 style="margin-top:22px">Foto</h2><div class="photos">{photos}</div>{delete_form}</div></div>''')
+    return page(t['ticket_code'], f'''<div class="grid"><div class="card span-7"><h2>{esc(t["ticket_code"])}</h2><p><b>Zona:</b> {esc(t["zone_name"])}</p><p><b>Segnalato da:</b> {esc(t["reporter_name"])}</p><p><b>Categoria:</b> {esc(t["category"])}</p><h3>Descrizione originale</h3><p style="white-space:pre-wrap">{esc(t["description_original"])}</p>{translation_notice}<form method="post" action="{ticket_id}/auto-translate" style="margin-bottom:18px"><button type="submit">Traduci ora in italiano e tedesco</button></form><h3>Traduzione italiana</h3><p style="white-space:pre-wrap">{esc(t["description_it"] or "In attesa")}</p><h3>Traduzione tedesca / Deutsche Übersetzung</h3><p style="white-space:pre-wrap">{esc(t["description_de"] or "In attesa / Ausstehend")}</p><form method="post" action="{ticket_id}/translation"><label>Correggi traduzione italiana</label><textarea name="description_it" maxlength="4000">{esc(t["description_it"] or "")}</textarea><label>Correggi traduzione tedesca / Deutsche Übersetzung</label><textarea name="description_de" maxlength="4000">{esc(t["description_de"] or "")}</textarea><button>Salva correzioni</button></form></div><div class="card span-5"><h2>Gestione</h2><form method="post" action="{ticket_id}/update"><label>Stato</label><select name="status">{status_options}</select><label>Priorità</label><select name="priority">{priority_options}</select><label>Note interne / soluzione</label><textarea name="resolution_notes" maxlength="4000">{esc(t["resolution_notes"] or "")}</textarea><button>Salva modifiche</button></form><h2 style="margin-top:22px">Foto</h2><div class="photos">{photos}</div>{delete_form}</div></div>''')
 
 
 @admin_app.post('/ticket/{ticket_id}/auto-translate')
