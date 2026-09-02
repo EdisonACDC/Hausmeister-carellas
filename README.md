@@ -2,7 +2,7 @@
 
 Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ristorante e delle camere del personale.
 
-## Funzioni della versione 1.2.0
+## Funzioni della versione 1.2.1
 
 - Interfaccia amministrativa dentro Home Assistant tramite Ingress.
 - Creazione zone personalizzate.
@@ -21,6 +21,7 @@ Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ris
 - Visualizzazione protetta delle fotografie nell'interfaccia Ingress.
 - Notifiche tramite un servizio `notify` di Home Assistant.
 - Apertura diretta del ticket corretto toccando la notifica, tramite collegamento firmato e temporaneo.
+- Gestione di più telefoni dalle Impostazioni: aggiunta, rinomina, modifica dell'entità, attivazione, prova ed eliminazione.
 - Attivazione/disattivazione delle zone e rigenerazione dei QR.
 - Download e stampa dei QR.
 - Protezione contro tentativi ripetuti del PIN.
@@ -69,7 +70,7 @@ La porta `8099` è riservata alla gestione privata via Ingress. La porta `8080` 
 
 ## Notifiche
 
-Nelle opzioni dell'add-on, `notify_service` deve contenere il nome dell'azione senza il prefisso `notify.`. Per l'iPhone di Marius usare `mobile_app_iphone_marius`. La pagina **Impostazioni** contiene un pulsante di prova. Le notifiche sono normali: non forzano suono o volume e rispettano la modalità silenziosa dell'iPhone.
+I telefoni si gestiscono direttamente nella pagina **Impostazioni** dell'add-on. Per ogni dispositivo inserire un nome riconoscibile e l'azione senza il prefisso `notify.`, per esempio `mobile_app_iphone_marius`. Il vecchio valore `notify_service` viene importato automaticamente al primo avvio. Le notifiche sono normali: non forzano suono o volume e rispettano la modalità silenziosa dell'iPhone.
 
 ## Traduzione
 
