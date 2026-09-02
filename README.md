@@ -2,7 +2,7 @@
 
 Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ristorante e delle camere del personale.
 
-## Funzioni della versione 1.1.0
+## Funzioni della versione 1.1.1
 
 - Interfaccia amministrativa dentro Home Assistant tramite Ingress.
 - Creazione zone personalizzate.
@@ -25,7 +25,7 @@ Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ris
 - Protezione contro tentativi ripetuti del PIN.
 - Backup ZIP di database e fotografie.
 - Eliminazione definitiva dei ticket risolti e delle fotografie collegate.
-- Dashboard semplificata con il solo elenco delle zone.
+- Dashboard con contatori, ticket recenti e zone; creazione zone e gestione PIN restano nelle sezioni dedicate.
 - Rinomina ed eliminazione delle zone; eliminando una zona vengono rimossi anche i relativi ticket e file.
 - PIN delle zone visibile dopo il nuovo salvataggio.
 - Secondo PIN visibile e indipendente per il QR che raggruppa tutte le zone attive.
