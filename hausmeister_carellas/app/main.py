@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.1.8'
+APP_VERSION = '1.1.9'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -308,9 +308,15 @@ def brand_logo():
     </svg></div>'''
 
 
-def page(title: str, body: str, public: bool = False, lang: str = 'it'):
+def page(title: str, body: str, public: bool = False, lang: str = 'it', back_url: str = '', close_on_back: bool = False):
     shell_class = 'public-shell' if public else 'admin-shell'
-    back = f'<button type="button" class="back-btn" onclick="history.back()">← {public_text(lang, "back") if public else "Indietro"}</button>'
+    back_label = public_text(lang, 'back') if public else 'Indietro'
+    if public and back_url:
+        back = f'<a class="btn back-btn" href="{esc(back_url)}">← {back_label}</a>'
+    elif public and close_on_back:
+        back = f'<button type="button" class="back-btn" onclick="closePublicPage()">← {back_label}</button>'
+    else:
+        back = f'<button type="button" class="back-btn" onclick="history.back()">← {back_label}</button>'
     return f'''<!doctype html><html lang="{esc(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#6e7d08"><title>{title}</title><style>
 :root{{--olive:#6e7d08;--olive-dark:#586406;--cream:#fbfaf5;--ink:#17212b;--muted:#6b7280;--line:#e5e7eb;--danger:#c62828;--card:#fff;--nav:#18252d;--shadow:0 4px 18px #00000012}}
 *{{box-sizing:border-box}}html,body{{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:#eef1f2}}
@@ -322,7 +328,7 @@ input,textarea,select{{width:100%;padding:13px 14px;margin:7px 0 15px;border:1px
 .public-shell{{min-height:100vh;background:linear-gradient(145deg,#fff 0%,var(--cream) 100%);display:grid;place-items:center;padding:24px}}.public-wrap{{width:min(720px,100%);margin:auto}}.public-brand{{width:300px;max-width:80%;margin:0 auto 12px}}.public-card{{background:#fff;border:1px solid #ebe8dc;border-radius:18px;padding:24px;box-shadow:0 12px 35px #0000000f}}.public-card h1{{text-align:center;margin-bottom:6px}}.public-card>.muted{{text-align:center;display:block;margin-bottom:20px}}.public-card button{{width:100%;background:var(--olive)}}.success{{text-align:center;padding:22px 6px}}.success-mark{{width:64px;height:64px;border-radius:50%;background:#eef7ea;color:#2e7d32;display:grid;place-items:center;margin:0 auto 15px;font-size:34px}}
 @media(max-width:1000px){{.admin-shell{{grid-template-columns:1fr}}.sidebar{{height:auto;position:relative;padding:10px 12px;display:flex;align-items:center;gap:8px;overflow-x:auto}}.sidebar .brand-wrap{{min-width:155px;margin:0;padding:5px}}.sidebar .brand-logo{{width:145px}}.side-link{{white-space:nowrap;margin:0}}.side-foot{{display:none}}.span-3{{grid-column:span 6}}.span-4,.span-5,.span-6,.span-7,.span-8{{grid-column:span 12}}}}
 @media(max-width:640px){{.topbar{{padding:12px 14px}}.topbar h1{{font-size:20px}}.status-dot{{display:none}}main{{padding:12px}}.grid{{gap:10px}}.span-3,.span-4,.span-5,.span-6,.span-7,.span-8,.span-12{{grid-column:span 12}}.card{{padding:15px;border-radius:14px}}.metric strong{{font-size:24px}}.public-shell{{padding:14px}}.public-card{{padding:18px 15px}}.public-brand{{max-width:88%;width:270px}}.actions button,.actions .btn{{flex:1 1 140px}}.nav{{margin-bottom:8px}}.filters{{grid-template-columns:1fr}}}}
-</style><script>function adminGo(path){{const marker='/api/hassio_ingress/';const current=location.pathname;const start=current.indexOf(marker);if(start>=0){{const after=start+marker.length;const slash=current.indexOf('/',after);const base=slash>=0?current.slice(0,slash+1):current+'/';location.href=base+path;}}else{{location.href='/'+path;}}return false;}}</script></head><body><div class="page {shell_class}">'''+(
+</style><script>function adminGo(path){{const marker='/api/hassio_ingress/';const current=location.pathname;const start=current.indexOf(marker);if(start>=0){{const after=start+marker.length;const slash=current.indexOf('/',after);const base=slash>=0?current.slice(0,slash+1):current+'/';location.href=base+path;}}else{{location.href='/'+path;}}return false;}}function closePublicPage(){{window.close();setTimeout(function(){{if(!document.hidden&&history.length>1)history.back();}},180);}}</script></head><body><div class="page {shell_class}">'''+(
     f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="./" onclick="return adminGo('')">⌂ Dashboard</a><a class="side-link" href="tickets" onclick="return adminGo('tickets')">☷ Ticket</a><a class="side-link" href="zones" onclick="return adminGo('zones')">⌖ Zone / QR</a><a class="side-link" href="settings" onclick="return adminGo('settings')">⚙ Impostazioni</a><div class="side-foot">Hausmeister Carellas<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● Add-on in esecuzione</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if not public else f'''<div class="public-wrap"><div class="public-brand">{brand_logo()}</div><div class="nav">{back}</div>{body}</div>''')+'''</div></body></html>'''
 
 
@@ -721,7 +727,7 @@ def health():
 @public_app.get('/', response_class=HTMLResponse)
 def public_home(request: Request):
     lang = public_language(request)
-    return page('Hausmeister Carellas', f'<div class="public-card"><div class="success"><h1>{public_text(lang, "portal")}</h1><p>{public_text(lang, "scan_help")}</p></div></div>', public=True, lang=lang)
+    return page('Hausmeister Carellas', f'<div class="public-card"><div class="success"><h1>{public_text(lang, "portal")}</h1><p>{public_text(lang, "scan_help")}</p></div></div>', public=True, lang=lang, close_on_back=True)
 
 
 @public_app.get('/g/{token}', response_class=HTMLResponse)
@@ -730,7 +736,7 @@ def group_form(request: Request, token: str):
     if token != group_token():
         raise HTTPException(404, 'Ungültiger Gruppen-QR-Code' if lang == 'de' else 'QR di gruppo non valido')
     if not get_setting('group_pin_hash'):
-        return page(public_text(lang, 'not_configured'), f'<div class="public-card"><div class="success"><h1>{public_text(lang, "unavailable")}</h1><p>{public_text(lang, "configure_password")}</p></div></div>', public=True, lang=lang)
+        return page(public_text(lang, 'not_configured'), f'<div class="public-card"><div class="success"><h1>{public_text(lang, "unavailable")}</h1><p>{public_text(lang, "configure_password")}</p></div></div>', public=True, lang=lang, close_on_back=True)
     cookie = request.cookies.get('hm_session')
     unlocked = False
     if cookie:
@@ -739,12 +745,21 @@ def group_form(request: Request, token: str):
         except BadSignature:
             pass
     if not unlocked:
-        return page(public_text(lang, 'all_zones'), f'''<div class="public-card"><h1>{public_text(lang, 'all_zones')}</h1><span class="muted">{public_text(lang, 'group_password_help')}</span><form method="post" action="{esc(token)}/unlock"><label>{public_text(lang, 'group_password')}</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" required placeholder="{public_text(lang, 'password_placeholder')}"><button>{public_text(lang, 'login')}</button></form></div>''', public=True, lang=lang)
+        return page(public_text(lang, 'all_zones'), f'''<div class="public-card"><h1>{public_text(lang, 'all_zones')}</h1><span class="muted">{public_text(lang, 'group_password_help')}</span><form method="post" action="{esc(token)}/unlock"><label>{public_text(lang, 'group_password')}</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" required placeholder="{public_text(lang, 'password_placeholder')}"><button>{public_text(lang, 'login')}</button></form></div>''', public=True, lang=lang, close_on_back=True)
     con = db()
     zones = con.execute('SELECT * FROM zones WHERE active=1 ORDER BY name').fetchall()
     con.close()
     buttons = ''.join(f'<a class="btn" style="width:100%;margin:6px 0" href="../../r/{esc(zone["token"])}">{esc(zone["name"])}</a>' for zone in zones) or f'<p class="muted">{public_text(lang, "no_zones")}</p>'
-    return page(public_text(lang, 'choose_zone'), f'''<div class="public-card"><h1>{public_text(lang, 'choose_zone')}</h1><span class="muted">{public_text(lang, 'choose_zone_help')}</span>{buttons}</div>''', public=True, lang=lang)
+    return page(public_text(lang, 'choose_zone'), f'''<div class="public-card"><h1>{public_text(lang, 'choose_zone')}</h1><span class="muted">{public_text(lang, 'choose_zone_help')}</span>{buttons}</div>''', public=True, lang=lang, back_url=f'/g/{esc(token)}/logout')
+
+
+@public_app.get('/g/{token}/logout')
+def group_logout(token: str):
+    if token != group_token():
+        raise HTTPException(404)
+    response = RedirectResponse(f'../{token}', status_code=303)
+    response.delete_cookie('hm_session', path='/')
+    return response
 
 
 @public_app.post('/g/{token}/unlock')
@@ -782,9 +797,9 @@ def report_form(request: Request, token: str):
     if not zone:
         raise HTTPException(404, 'Ungültiger Bereich' if lang == 'de' else 'Zona non valida')
     if not get_setting('pin_hash'):
-        return page(public_text(lang, 'not_configured'), f'<div class="public-card"><div class="success"><h1>{public_text(lang, "unavailable")}</h1><p>{public_text(lang, "configure_password")}</p></div></div>', public=True, lang=lang)
+        return page(public_text(lang, 'not_configured'), f'<div class="public-card"><div class="success"><h1>{public_text(lang, "unavailable")}</h1><p>{public_text(lang, "configure_password")}</p></div></div>', public=True, lang=lang, close_on_back=True)
     if not session_zone(request, token):
-        return page(public_text(lang, 'report'), f'''<div class="public-card"><h1>{public_text(lang, 'report')}</h1><span class="muted">{public_text(lang, 'zone')}: <b>{esc(zone["name"])}</b> · {public_text(lang, 'enter_password')}</span><form method="post" action="{esc(token)}/unlock"><label>{public_text(lang, 'password')}</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" placeholder="{public_text(lang, 'password_placeholder')}" required><button>{public_text(lang, 'login')}</button></form></div>''', public=True, lang=lang)
+        return page(public_text(lang, 'report'), f'''<div class="public-card"><h1>{public_text(lang, 'report')}</h1><span class="muted">{public_text(lang, 'zone')}: <b>{esc(zone["name"])}</b> · {public_text(lang, 'enter_password')}</span><form method="post" action="{esc(token)}/unlock"><label>{public_text(lang, 'password')}</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" placeholder="{public_text(lang, 'password_placeholder')}" required><button>{public_text(lang, 'login')}</button></form></div>''', public=True, lang=lang, close_on_back=True)
     categories = (
         (('Elettrico', 'Elektrik'), ('Idraulico', 'Sanitär / Wasser'), ('Climatizzazione', 'Klimaanlage'), ('Porta/Finestra', 'Tür / Fenster'), ('Attrezzatura cucina', 'Küchengerät'), ('Altro', 'Sonstiges'))
         if lang == 'de' else
@@ -797,7 +812,19 @@ def report_form(request: Request, token: str):
     )
     category_options = ''.join(f'<option value="{esc(value)}">{esc(label)}</option>' for value, label in categories)
     priority_options = ''.join(f'<option value="{esc(value)}">{esc(label)}</option>' for value, label in priorities)
-    return page(public_text(lang, 'new_report'), f'''<div class="public-card"><h1>{public_text(lang, 'new_report')}</h1><span class="muted">{public_text(lang, 'selected_zone')}: <b>{esc(zone["name"])}</b></span><form method="post" enctype="multipart/form-data" action="{esc(token)}/submit"><label>{public_text(lang, 'name')} *</label><input name="reporter_name" maxlength="120" required placeholder="{public_text(lang, 'name_placeholder')}"><label>{public_text(lang, 'fault_type')} *</label><select name="category" required><option value="">{public_text(lang, 'select_category')}</option>{category_options}</select><label>{public_text(lang, 'priority')}</label><select name="priority">{priority_options}</select><label>{public_text(lang, 'description')} *</label><textarea name="description" maxlength="4000" rows="6" required placeholder="{public_text(lang, 'description_placeholder')}"></textarea><label>{public_text(lang, 'photos')}</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple><button>➤ {public_text(lang, 'send')}</button></form></div>''', public=True, lang=lang)
+    return page(public_text(lang, 'new_report'), f'''<div class="public-card"><h1>{public_text(lang, 'new_report')}</h1><span class="muted">{public_text(lang, 'selected_zone')}: <b>{esc(zone["name"])}</b></span><form method="post" enctype="multipart/form-data" action="{esc(token)}/submit"><label>{public_text(lang, 'name')} *</label><input name="reporter_name" maxlength="120" required placeholder="{public_text(lang, 'name_placeholder')}"><label>{public_text(lang, 'fault_type')} *</label><select name="category" required><option value="">{public_text(lang, 'select_category')}</option>{category_options}</select><label>{public_text(lang, 'priority')}</label><select name="priority">{priority_options}</select><label>{public_text(lang, 'description')} *</label><textarea name="description" maxlength="4000" rows="6" required placeholder="{public_text(lang, 'description_placeholder')}"></textarea><label>{public_text(lang, 'photos')}</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple><button>➤ {public_text(lang, 'send')}</button></form></div>''', public=True, lang=lang, back_url=f'/r/{esc(token)}/logout')
+
+
+@public_app.get('/r/{token}/logout')
+def report_logout(token: str):
+    con = db()
+    zone = con.execute('SELECT id FROM zones WHERE token=?', (token,)).fetchone()
+    con.close()
+    if not zone:
+        raise HTTPException(404)
+    response = RedirectResponse(f'../{token}', status_code=303)
+    response.delete_cookie('hm_session', path='/')
+    return response
 
 
 @public_app.post('/r/{token}/unlock')
@@ -867,4 +894,4 @@ async def submit_ticket(request: Request, token: str, reporter_name: str = Form(
     con.commit()
     con.close()
     notify_home_assistant(f'Nuovo ticket {code} · Zona {zone["name"]} · {category} · Priorità {priority}')
-    return page(public_text(lang, 'received'), f'''<div class="public-card"><div class="success"><div class="success-mark">✓</div><h1>{public_text(lang, 'received')}</h1><p>{public_text(lang, 'thanks')}</p><p><b>Ticket:</b> {esc(code)}<br><b>{public_text(lang, 'zone')}:</b> {esc(zone["name"])}</p></div></div>''', public=True, lang=lang)
+    return page(public_text(lang, 'received'), f'''<div class="public-card"><div class="success"><div class="success-mark">✓</div><h1>{public_text(lang, 'received')}</h1><p>{public_text(lang, 'thanks')}</p><p><b>Ticket:</b> {esc(code)}<br><b>{public_text(lang, 'zone')}:</b> {esc(zone["name"])}</p></div></div>''', public=True, lang=lang, back_url=f'/r/{esc(token)}/logout')
