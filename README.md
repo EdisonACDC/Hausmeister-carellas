@@ -2,7 +2,7 @@
 
 Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ristorante e delle camere del personale.
 
-## Funzioni della versione 1.1.4
+## Funzioni della versione 1.1.5
 
 - Interfaccia amministrativa dentro Home Assistant tramite Ingress.
 - Creazione zone personalizzate.
@@ -32,6 +32,7 @@ Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ris
 - Traduzione dei ticket sia in italiano sia in tedesco.
 - Password alfanumeriche per QR singoli e di gruppo, con tastiera completa su iPhone e caratteri coperti durante l'accesso.
 - Traduzione automatica preconfigurata in italiano e tedesco per i nuovi ticket, con pulsante "Traduci ora" per quelli già esistenti.
+- Secondo servizio automatico di riserva per la traduzione e messaggio diagnostico visibile quando entrambi i servizi non rispondono.
 - Migrazione automatica dei dati dalle versioni precedenti.
 
 ## Installazione in Home Assistant
