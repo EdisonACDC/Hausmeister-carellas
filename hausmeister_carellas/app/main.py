@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.1.2'
+APP_VERSION = '1.1.3'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -349,8 +349,8 @@ def zones_page():
 @admin_app.post('/pin')
 def save_pin(pin: str = Form(...)):
     pin = pin.strip()
-    if len(pin) < 6:
-        raise HTTPException(400, 'PIN troppo corto: minimo 6 caratteri')
+    if len(pin) < 6 or len(pin) > 64:
+        raise HTTPException(400, 'La password deve contenere da 6 a 64 caratteri')
     set_setting('pin_hash', argon2.hash(pin))
     set_setting('pin_plain', pin)
     return RedirectResponse('settings', status_code=303)
@@ -366,8 +366,8 @@ def remove_pin():
 @admin_app.post('/settings/group-pin')
 def save_group_pin(pin: str = Form(...)):
     pin = pin.strip()
-    if len(pin) < 6:
-        raise HTTPException(400, 'PIN di gruppo troppo corto: minimo 6 caratteri')
+    if len(pin) < 6 or len(pin) > 64:
+        raise HTTPException(400, 'La password di gruppo deve contenere da 6 a 64 caratteri')
     set_setting('group_pin_hash', argon2.hash(pin))
     set_setting('group_pin_plain', pin)
     group_token()
@@ -378,14 +378,14 @@ def save_group_pin(pin: str = Form(...)):
 def settings_page(message: str = ''):
     options = load_options()
     pin_plain = get_setting('pin_plain', '')
-    pin_hint = '' if pin_plain else ('Il vecchio PIN è protetto e non recuperabile: salvalo nuovamente una sola volta per renderlo visibile.' if get_setting('pin_hash') else 'Imposta il PIN per i QR delle singole zone.')
+    pin_hint = '' if pin_plain else ('La vecchia password è protetta e non recuperabile: salvala nuovamente una sola volta per renderla visibile.' if get_setting('pin_hash') else 'Imposta la password per i QR delle singole zone.')
     group_pin = get_setting('group_pin_plain', '')
     group_url = group_public_url()
     base = options.get('public_base_url') or 'Non configurato'
     notify = options.get('notify_service') or 'Non configurato'
     translation = options.get('translation_url') or 'Non configurata (inserimento manuale disponibile)'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>PIN zone singole</h2><p class="muted">Usato dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>PIN salvato</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" autocomplete="off" required placeholder="Inserisci nuovamente il PIN"><button>Salva PIN zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>PIN QR di gruppo</h2><p class="muted">È diverso dal PIN delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>PIN di gruppo salvato</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" autocomplete="off" required placeholder="Crea il PIN di gruppo"><button>Salva PIN di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva il PIN di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Servizio notifiche:</b><br>{esc(notify)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">Questi valori si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p><form method="post" action="settings/test-notification"><button>Invia notifica di prova</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
+    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Servizio notifiche:</b><br>{esc(notify)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">Questi valori si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p><form method="post" action="settings/test-notification"><button>Invia notifica di prova</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
 
 
 @admin_app.get('/settings/group-qr')
@@ -611,7 +611,7 @@ def group_form(request: Request, token: str):
         except BadSignature:
             pass
     if not unlocked:
-        return page('Accesso alle zone', f'''<div class="public-card"><h1>Tutte le zone</h1><span class="muted">Inserisci il PIN del QR di gruppo</span><form method="post" action="{esc(token)}/unlock"><label>PIN di gruppo</label><input type="text" name="pin" inputmode="numeric" pattern="[0-9]*" minlength="6" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" style="-webkit-text-security:disc" required placeholder="Inserisci PIN"><button>Accedi</button></form></div>''', public=True)
+        return page('Accesso alle zone', f'''<div class="public-card"><h1>Tutte le zone</h1><span class="muted">Inserisci la password del QR di gruppo</span><form method="post" action="{esc(token)}/unlock"><label>Password di gruppo</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" required placeholder="Inserisci password"><button>Accedi</button></form></div>''', public=True)
     con = db()
     zones = con.execute('SELECT * FROM zones WHERE active=1 ORDER BY name').fetchall()
     con.close()
@@ -637,7 +637,7 @@ def group_unlock(request: Request, token: str, pin: str = Form(...)):
     if not valid:
         attempts.append(current)
         PIN_ATTEMPTS[key] = attempts
-        raise HTTPException(403, 'PIN di gruppo non valido')
+        raise HTTPException(403, 'Password di gruppo non valida')
     PIN_ATTEMPTS.pop(key, None)
     response = RedirectResponse(f'../{token}', status_code=303)
     response.set_cookie('hm_session', serializer().dumps({'group': token}), max_age=86400, httponly=True, secure=True, samesite='lax')
@@ -654,7 +654,7 @@ def report_form(request: Request, token: str):
     if not get_setting('pin_hash'):
         return page('Servizio non configurato', '<div class="public-card"><div class="success"><h1>Servizio non disponibile</h1><p>Il responsabile deve configurare il PIN.</p></div></div>', public=True)
     if not session_zone(request, token):
-        return page('Segnalazione guasto', f'''<div class="public-card"><h1>Segnalazione guasto</h1><span class="muted">Zona: <b>{esc(zone["name"])}</b> · Inserisci il PIN per accedere</span><form method="post" action="{esc(token)}/unlock"><label>PIN di accesso</label><input type="text" name="pin" inputmode="numeric" pattern="[0-9]*" minlength="6" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" style="-webkit-text-security:disc" placeholder="Inserisci PIN" required><button>Accedi</button></form></div>''', public=True)
+        return page('Segnalazione guasto', f'''<div class="public-card"><h1>Segnalazione guasto</h1><span class="muted">Zona: <b>{esc(zone["name"])}</b> · Inserisci la password per accedere</span><form method="post" action="{esc(token)}/unlock"><label>Password di accesso</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" placeholder="Inserisci password" required><button>Accedi</button></form></div>''', public=True)
     return page('Nuova segnalazione', f'''<div class="public-card"><h1>Nuova segnalazione</h1><span class="muted">Zona selezionata: <b>{esc(zone["name"])}</b></span><form method="post" enctype="multipart/form-data" action="{esc(token)}/submit"><label>Nome e cognome *</label><input name="reporter_name" maxlength="120" required placeholder="Inserisci il tuo nome e cognome"><label>Tipo di guasto *</label><select name="category" required><option value="">Seleziona la categoria</option><option value="Elettrico">Elettrico</option><option value="Idraulico">Idraulico</option><option value="Climatizzazione">Climatizzazione</option><option value="Porta/Finestra">Porta/Finestra</option><option value="Attrezzatura cucina">Attrezzatura cucina</option><option value="Altro">Altro</option></select><label>Priorità</label><select name="priority"><option>Normale</option><option>Bassa</option><option>Alta</option><option>Urgente</option></select><label>Descrizione *</label><textarea name="description" maxlength="4000" rows="6" required placeholder="Descrivi il problema nel dettaglio"></textarea><label>Foto (opzionale, massimo 5)</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple><button>➤ Invia segnalazione</button></form></div>''', public=True)
 
 
@@ -679,7 +679,7 @@ def unlock(request: Request, token: str, pin: str = Form(...)):
     if not valid:
         attempts.append(current)
         PIN_ATTEMPTS[key] = attempts
-        raise HTTPException(403, 'PIN non valido')
+        raise HTTPException(403, 'Password non valida')
     PIN_ATTEMPTS.pop(key, None)
     value = serializer().dumps({'zone': token})
     response = RedirectResponse(f'../{token}', status_code=303)
