@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.1.5'
+APP_VERSION = '1.1.6'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -235,6 +235,51 @@ def group_public_url():
     return f'{base}/g/{token}' if base else f'/g/{token}'
 
 
+def public_language(request: Request):
+    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()
+    return 'de' if preferred.startswith('de') else 'it'
+
+
+PUBLIC_TEXT = {
+    'it': {
+        'back': 'Indietro', 'report': 'Segnalazione guasto', 'new_report': 'Nuova segnalazione',
+        'selected_zone': 'Zona selezionata', 'zone': 'Zona', 'enter_password': 'Inserisci la password per accedere',
+        'password': 'Password di accesso', 'password_placeholder': 'Inserisci password', 'login': 'Accedi',
+        'name': 'Nome e cognome', 'name_placeholder': 'Inserisci il tuo nome e cognome',
+        'fault_type': 'Tipo di guasto', 'select_category': 'Seleziona la categoria', 'priority': 'Priorità',
+        'description': 'Descrizione', 'description_placeholder': 'Descrivi il problema nel dettaglio',
+        'photos': 'Foto (opzionale, massimo 5)', 'send': 'Invia segnalazione',
+        'all_zones': 'Tutte le zone', 'group_password_help': 'Inserisci la password del QR di gruppo',
+        'group_password': 'Password di gruppo', 'choose_zone': 'Scegli la zona',
+        'choose_zone_help': 'Seleziona dove vuoi fare la segnalazione', 'no_zones': 'Nessuna zona attiva.',
+        'not_configured': 'Servizio non configurato', 'unavailable': 'Servizio non disponibile',
+        'configure_password': 'Il responsabile deve configurare la password.',
+        'received': 'Segnalazione ricevuta', 'thanks': 'Grazie, la segnalazione è stata registrata.',
+        'portal': 'Portale segnalazioni', 'scan_help': 'Per aprire una segnalazione, scansiona il QR della zona.',
+    },
+    'de': {
+        'back': 'Zurück', 'report': 'Störung melden', 'new_report': 'Neue Störungsmeldung',
+        'selected_zone': 'Ausgewählter Bereich', 'zone': 'Bereich', 'enter_password': 'Passwort eingeben, um fortzufahren',
+        'password': 'Zugangspasswort', 'password_placeholder': 'Passwort eingeben', 'login': 'Anmelden',
+        'name': 'Vor- und Nachname', 'name_placeholder': 'Vor- und Nachnamen eingeben',
+        'fault_type': 'Art der Störung', 'select_category': 'Kategorie auswählen', 'priority': 'Priorität',
+        'description': 'Beschreibung', 'description_placeholder': 'Problem genau beschreiben',
+        'photos': 'Fotos (optional, maximal 5)', 'send': 'Störungsmeldung senden',
+        'all_zones': 'Alle Bereiche', 'group_password_help': 'Passwort des Gruppen-QR-Codes eingeben',
+        'group_password': 'Gruppenpasswort', 'choose_zone': 'Bereich auswählen',
+        'choose_zone_help': 'Bereich der Störung auswählen', 'no_zones': 'Keine aktiven Bereiche.',
+        'not_configured': 'Dienst nicht konfiguriert', 'unavailable': 'Dienst nicht verfügbar',
+        'configure_password': 'Der Verantwortliche muss zuerst das Passwort konfigurieren.',
+        'received': 'Störungsmeldung erhalten', 'thanks': 'Vielen Dank. Die Störungsmeldung wurde gespeichert.',
+        'portal': 'Störungsmeldungsportal', 'scan_help': 'Zum Melden einer Störung den QR-Code des Bereichs scannen.',
+    },
+}
+
+
+def public_text(lang: str, key: str):
+    return PUBLIC_TEXT.get(lang, PUBLIC_TEXT['it']).get(key, key)
+
+
 def brand_logo():
     return '''<div class="brand-logo" aria-label="Carellas Ristorante">
     <svg viewBox="0 0 360 128" role="img" aria-label="Carellas Ristorante">
@@ -247,10 +292,10 @@ def brand_logo():
     </svg></div>'''
 
 
-def page(title: str, body: str, public: bool = False):
+def page(title: str, body: str, public: bool = False, lang: str = 'it'):
     shell_class = 'public-shell' if public else 'admin-shell'
-    back = '<button type="button" class="back-btn" onclick="history.back()">← Indietro</button>'
-    return f'''<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#6e7d08"><title>{title}</title><style>
+    back = f'<button type="button" class="back-btn" onclick="history.back()">← {public_text(lang, "back") if public else "Indietro"}</button>'
+    return f'''<!doctype html><html lang="{esc(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#6e7d08"><title>{title}</title><style>
 :root{{--olive:#6e7d08;--olive-dark:#586406;--cream:#fbfaf5;--ink:#17212b;--muted:#6b7280;--line:#e5e7eb;--danger:#c62828;--card:#fff;--nav:#18252d;--shadow:0 4px 18px #00000012}}
 *{{box-sizing:border-box}}html,body{{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:#eef1f2}}
 body{{overflow-x:hidden}}button,input,textarea,select{{font:inherit}}a{{color:inherit}}.brand-logo{{width:230px;max-width:100%;margin:0 auto}}.brand-logo svg{{display:block;width:100%;height:auto}}
@@ -651,16 +696,18 @@ def health():
 
 
 @public_app.get('/', response_class=HTMLResponse)
-def public_home():
-    return page('Hausmeister Carellas', '<div class="public-card"><div class="success"><h1>Portale segnalazioni</h1><p>Per aprire una segnalazione, scansiona il QR della zona.</p></div></div>', public=True)
+def public_home(request: Request):
+    lang = public_language(request)
+    return page('Hausmeister Carellas', f'<div class="public-card"><div class="success"><h1>{public_text(lang, "portal")}</h1><p>{public_text(lang, "scan_help")}</p></div></div>', public=True, lang=lang)
 
 
 @public_app.get('/g/{token}', response_class=HTMLResponse)
 def group_form(request: Request, token: str):
+    lang = public_language(request)
     if token != group_token():
-        raise HTTPException(404, 'QR di gruppo non valido')
+        raise HTTPException(404, 'Ungültiger Gruppen-QR-Code' if lang == 'de' else 'QR di gruppo non valido')
     if not get_setting('group_pin_hash'):
-        return page('Servizio non configurato', '<div class="public-card"><div class="success"><h1>Servizio non disponibile</h1><p>Il responsabile deve configurare il PIN di gruppo.</p></div></div>', public=True)
+        return page(public_text(lang, 'not_configured'), f'<div class="public-card"><div class="success"><h1>{public_text(lang, "unavailable")}</h1><p>{public_text(lang, "configure_password")}</p></div></div>', public=True, lang=lang)
     cookie = request.cookies.get('hm_session')
     unlocked = False
     if cookie:
@@ -669,16 +716,17 @@ def group_form(request: Request, token: str):
         except BadSignature:
             pass
     if not unlocked:
-        return page('Accesso alle zone', f'''<div class="public-card"><h1>Tutte le zone</h1><span class="muted">Inserisci la password del QR di gruppo</span><form method="post" action="{esc(token)}/unlock"><label>Password di gruppo</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" required placeholder="Inserisci password"><button>Accedi</button></form></div>''', public=True)
+        return page(public_text(lang, 'all_zones'), f'''<div class="public-card"><h1>{public_text(lang, 'all_zones')}</h1><span class="muted">{public_text(lang, 'group_password_help')}</span><form method="post" action="{esc(token)}/unlock"><label>{public_text(lang, 'group_password')}</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" required placeholder="{public_text(lang, 'password_placeholder')}"><button>{public_text(lang, 'login')}</button></form></div>''', public=True, lang=lang)
     con = db()
     zones = con.execute('SELECT * FROM zones WHERE active=1 ORDER BY name').fetchall()
     con.close()
-    buttons = ''.join(f'<a class="btn" style="width:100%;margin:6px 0" href="../../r/{esc(zone["token"])}">{esc(zone["name"])}</a>' for zone in zones) or '<p class="muted">Nessuna zona attiva.</p>'
-    return page('Scegli la zona', f'''<div class="public-card"><h1>Scegli la zona</h1><span class="muted">Seleziona dove vuoi fare la segnalazione</span>{buttons}</div>''', public=True)
+    buttons = ''.join(f'<a class="btn" style="width:100%;margin:6px 0" href="../../r/{esc(zone["token"])}">{esc(zone["name"])}</a>' for zone in zones) or f'<p class="muted">{public_text(lang, "no_zones")}</p>'
+    return page(public_text(lang, 'choose_zone'), f'''<div class="public-card"><h1>{public_text(lang, 'choose_zone')}</h1><span class="muted">{public_text(lang, 'choose_zone_help')}</span>{buttons}</div>''', public=True, lang=lang)
 
 
 @public_app.post('/g/{token}/unlock')
 def group_unlock(request: Request, token: str, pin: str = Form(...)):
+    lang = public_language(request)
     if token != group_token():
         raise HTTPException(404)
     client = request.headers.get('x-forwarded-for', '').split(',')[0].strip() or (request.client.host if request.client else 'unknown')
@@ -686,7 +734,7 @@ def group_unlock(request: Request, token: str, pin: str = Form(...)):
     current = time.time()
     attempts = [stamp for stamp in PIN_ATTEMPTS.get(key, []) if current - stamp < PIN_WINDOW_SECONDS]
     if len(attempts) >= PIN_MAX_ATTEMPTS:
-        raise HTTPException(429, 'Troppi tentativi. Riprova tra 15 minuti.')
+        raise HTTPException(429, 'Zu viele Versuche. In 15 Minuten erneut versuchen.' if lang == 'de' else 'Troppi tentativi. Riprova tra 15 minuti.')
     pin_hash = get_setting('group_pin_hash')
     try:
         valid = bool(pin_hash and argon2.verify(pin, pin_hash))
@@ -695,7 +743,7 @@ def group_unlock(request: Request, token: str, pin: str = Form(...)):
     if not valid:
         attempts.append(current)
         PIN_ATTEMPTS[key] = attempts
-        raise HTTPException(403, 'Password di gruppo non valida')
+        raise HTTPException(403, 'Ungültiges Gruppenpasswort' if lang == 'de' else 'Password di gruppo non valida')
     PIN_ATTEMPTS.pop(key, None)
     response = RedirectResponse(f'../{token}', status_code=303)
     response.set_cookie('hm_session', serializer().dumps({'group': token}), max_age=86400, httponly=True, secure=True, samesite='lax')
@@ -704,20 +752,34 @@ def group_unlock(request: Request, token: str, pin: str = Form(...)):
 
 @public_app.get('/r/{token}', response_class=HTMLResponse)
 def report_form(request: Request, token: str):
+    lang = public_language(request)
     con = db()
     zone = con.execute('SELECT * FROM zones WHERE token=? AND active=1', (token,)).fetchone()
     con.close()
     if not zone:
-        raise HTTPException(404, 'Zona non valida')
+        raise HTTPException(404, 'Ungültiger Bereich' if lang == 'de' else 'Zona non valida')
     if not get_setting('pin_hash'):
-        return page('Servizio non configurato', '<div class="public-card"><div class="success"><h1>Servizio non disponibile</h1><p>Il responsabile deve configurare il PIN.</p></div></div>', public=True)
+        return page(public_text(lang, 'not_configured'), f'<div class="public-card"><div class="success"><h1>{public_text(lang, "unavailable")}</h1><p>{public_text(lang, "configure_password")}</p></div></div>', public=True, lang=lang)
     if not session_zone(request, token):
-        return page('Segnalazione guasto', f'''<div class="public-card"><h1>Segnalazione guasto</h1><span class="muted">Zona: <b>{esc(zone["name"])}</b> · Inserisci la password per accedere</span><form method="post" action="{esc(token)}/unlock"><label>Password di accesso</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" placeholder="Inserisci password" required><button>Accedi</button></form></div>''', public=True)
-    return page('Nuova segnalazione', f'''<div class="public-card"><h1>Nuova segnalazione</h1><span class="muted">Zona selezionata: <b>{esc(zone["name"])}</b></span><form method="post" enctype="multipart/form-data" action="{esc(token)}/submit"><label>Nome e cognome *</label><input name="reporter_name" maxlength="120" required placeholder="Inserisci il tuo nome e cognome"><label>Tipo di guasto *</label><select name="category" required><option value="">Seleziona la categoria</option><option value="Elettrico">Elettrico</option><option value="Idraulico">Idraulico</option><option value="Climatizzazione">Climatizzazione</option><option value="Porta/Finestra">Porta/Finestra</option><option value="Attrezzatura cucina">Attrezzatura cucina</option><option value="Altro">Altro</option></select><label>Priorità</label><select name="priority"><option>Normale</option><option>Bassa</option><option>Alta</option><option>Urgente</option></select><label>Descrizione *</label><textarea name="description" maxlength="4000" rows="6" required placeholder="Descrivi il problema nel dettaglio"></textarea><label>Foto (opzionale, massimo 5)</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple><button>➤ Invia segnalazione</button></form></div>''', public=True)
+        return page(public_text(lang, 'report'), f'''<div class="public-card"><h1>{public_text(lang, 'report')}</h1><span class="muted">{public_text(lang, 'zone')}: <b>{esc(zone["name"])}</b> · {public_text(lang, 'enter_password')}</span><form method="post" action="{esc(token)}/unlock"><label>{public_text(lang, 'password')}</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" placeholder="{public_text(lang, 'password_placeholder')}" required><button>{public_text(lang, 'login')}</button></form></div>''', public=True, lang=lang)
+    categories = (
+        (('Elettrico', 'Elektrik'), ('Idraulico', 'Sanitär / Wasser'), ('Climatizzazione', 'Klimaanlage'), ('Porta/Finestra', 'Tür / Fenster'), ('Attrezzatura cucina', 'Küchengerät'), ('Altro', 'Sonstiges'))
+        if lang == 'de' else
+        (('Elettrico', 'Elettrico'), ('Idraulico', 'Idraulico'), ('Climatizzazione', 'Climatizzazione'), ('Porta/Finestra', 'Porta / Finestra'), ('Attrezzatura cucina', 'Attrezzatura cucina'), ('Altro', 'Altro'))
+    )
+    priorities = (
+        (('Normale', 'Normal'), ('Bassa', 'Niedrig'), ('Alta', 'Hoch'), ('Urgente', 'Dringend'))
+        if lang == 'de' else
+        (('Normale', 'Normale'), ('Bassa', 'Bassa'), ('Alta', 'Alta'), ('Urgente', 'Urgente'))
+    )
+    category_options = ''.join(f'<option value="{esc(value)}">{esc(label)}</option>' for value, label in categories)
+    priority_options = ''.join(f'<option value="{esc(value)}">{esc(label)}</option>' for value, label in priorities)
+    return page(public_text(lang, 'new_report'), f'''<div class="public-card"><h1>{public_text(lang, 'new_report')}</h1><span class="muted">{public_text(lang, 'selected_zone')}: <b>{esc(zone["name"])}</b></span><form method="post" enctype="multipart/form-data" action="{esc(token)}/submit"><label>{public_text(lang, 'name')} *</label><input name="reporter_name" maxlength="120" required placeholder="{public_text(lang, 'name_placeholder')}"><label>{public_text(lang, 'fault_type')} *</label><select name="category" required><option value="">{public_text(lang, 'select_category')}</option>{category_options}</select><label>{public_text(lang, 'priority')}</label><select name="priority">{priority_options}</select><label>{public_text(lang, 'description')} *</label><textarea name="description" maxlength="4000" rows="6" required placeholder="{public_text(lang, 'description_placeholder')}"></textarea><label>{public_text(lang, 'photos')}</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple><button>➤ {public_text(lang, 'send')}</button></form></div>''', public=True, lang=lang)
 
 
 @public_app.post('/r/{token}/unlock')
 def unlock(request: Request, token: str, pin: str = Form(...)):
+    lang = public_language(request)
     con = db()
     zone = con.execute('SELECT * FROM zones WHERE token=? AND active=1', (token,)).fetchone()
     con.close()
@@ -728,7 +790,7 @@ def unlock(request: Request, token: str, pin: str = Form(...)):
     current = time.time()
     attempts = [stamp for stamp in PIN_ATTEMPTS.get(key, []) if current - stamp < PIN_WINDOW_SECONDS]
     if len(attempts) >= PIN_MAX_ATTEMPTS:
-        raise HTTPException(429, 'Troppi tentativi. Riprova tra 15 minuti.')
+        raise HTTPException(429, 'Zu viele Versuche. In 15 Minuten erneut versuchen.' if lang == 'de' else 'Troppi tentativi. Riprova tra 15 minuti.')
     pin_hash = get_setting('pin_hash')
     try:
         valid = bool(pin_hash and argon2.verify(pin, pin_hash))
@@ -737,7 +799,7 @@ def unlock(request: Request, token: str, pin: str = Form(...)):
     if not valid:
         attempts.append(current)
         PIN_ATTEMPTS[key] = attempts
-        raise HTTPException(403, 'Password non valida')
+        raise HTTPException(403, 'Ungültiges Passwort' if lang == 'de' else 'Password non valida')
     PIN_ATTEMPTS.pop(key, None)
     value = serializer().dumps({'zone': token})
     response = RedirectResponse(f'../{token}', status_code=303)
@@ -747,15 +809,16 @@ def unlock(request: Request, token: str, pin: str = Form(...)):
 
 @public_app.post('/r/{token}/submit', response_class=HTMLResponse)
 async def submit_ticket(request: Request, token: str, reporter_name: str = Form(...), category: str = Form(...), priority: str = Form('Normale'), description: str = Form(...), photos: list[UploadFile] = File(default=[])):
+    lang = public_language(request)
     if not session_zone(request, token):
-        raise HTTPException(403, 'Sessione scaduta')
+        raise HTTPException(403, 'Sitzung abgelaufen' if lang == 'de' else 'Sessione scaduta')
     reporter_name = reporter_name.strip()
     description = description.strip()
     if not reporter_name or not description or len(reporter_name) > 120 or len(description) > 4000:
-        raise HTTPException(400, 'Nome e descrizione sono obbligatori')
+        raise HTTPException(400, 'Name und Beschreibung sind erforderlich' if lang == 'de' else 'Nome e descrizione sono obbligatori')
     allowed_categories = {'Elettrico', 'Idraulico', 'Climatizzazione', 'Porta/Finestra', 'Attrezzatura cucina', 'Altro'}
     if category not in allowed_categories or priority not in PRIORITIES:
-        raise HTTPException(400, 'Categoria o priorità non valida')
+        raise HTTPException(400, 'Ungültige Kategorie oder Priorität' if lang == 'de' else 'Categoria o priorità non valida')
     con = db()
     zone = con.execute('SELECT * FROM zones WHERE token=? AND active=1', (token,)).fetchone()
     if not zone:
@@ -781,4 +844,4 @@ async def submit_ticket(request: Request, token: str, reporter_name: str = Form(
     con.commit()
     con.close()
     notify_home_assistant(f'Nuovo ticket {code} · Zona {zone["name"]} · {category} · Priorità {priority}')
-    return page('Segnalazione ricevuta', f'''<div class="public-card"><div class="success"><div class="success-mark">✓</div><h1>Segnalazione ricevuta</h1><p>Grazie, la segnalazione è stata registrata.</p><p><b>Ticket:</b> {esc(code)}<br><b>Zona:</b> {esc(zone["name"])}</p></div></div>''', public=True)
+    return page(public_text(lang, 'received'), f'''<div class="public-card"><div class="success"><div class="success-mark">✓</div><h1>{public_text(lang, 'received')}</h1><p>{public_text(lang, 'thanks')}</p><p><b>Ticket:</b> {esc(code)}<br><b>{public_text(lang, 'zone')}:</b> {esc(zone["name"])}</p></div></div>''', public=True, lang=lang)
