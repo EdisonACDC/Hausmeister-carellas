@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.2.2'
+APP_VERSION = '1.2.3'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -944,7 +944,7 @@ def public_home(request: Request):
 
 
 @public_app.get('/g/{token}', response_class=HTMLResponse)
-def group_form(request: Request, token: str):
+def group_form(request: Request, token: str, error: str = ''):
     lang = public_language(request)
     if token != group_token():
         raise HTTPException(404, 'Ungültiger Gruppen-QR-Code' if lang == 'de' else 'QR di gruppo non valido')
@@ -958,7 +958,8 @@ def group_form(request: Request, token: str):
         except BadSignature:
             pass
     if not unlocked:
-        return page(public_text(lang, 'all_zones'), f'''<div class="public-card"><h1>{public_text(lang, 'all_zones')}</h1><span class="muted">{public_text(lang, 'group_password_help')}</span><form method="post" action="{esc(token)}/unlock"><label>{public_text(lang, 'group_password')}</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" required placeholder="{public_text(lang, 'password_placeholder')}"><button>{public_text(lang, 'login')}</button></form></div>''', public=True, lang=lang, close_on_back=True)
+        error_notice = f'<div class="notice warning" role="alert"><b>⚠ {esc(error)}</b></div>' if error else ''
+        return page(public_text(lang, 'all_zones'), f'''<div class="public-card"><h1>{public_text(lang, 'all_zones')}</h1><span class="muted">{public_text(lang, 'group_password_help')}</span>{error_notice}<form method="post" action="{esc(token)}/unlock"><label>{public_text(lang, 'group_password')}</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" required placeholder="{public_text(lang, 'password_placeholder')}" autofocus><button>{public_text(lang, 'login')}</button></form></div>''', public=True, lang=lang, close_on_back=True)
     con = db()
     zones = con.execute('SELECT * FROM zones WHERE active=1 ORDER BY name').fetchall()
     con.close()
@@ -985,7 +986,8 @@ def group_unlock(request: Request, token: str, pin: str = Form(...)):
     current = time.time()
     attempts = [stamp for stamp in PIN_ATTEMPTS.get(key, []) if current - stamp < PIN_WINDOW_SECONDS]
     if len(attempts) >= PIN_MAX_ATTEMPTS:
-        raise HTTPException(429, 'Zu viele Versuche. In 15 Minuten erneut versuchen.' if lang == 'de' else 'Troppi tentativi. Riprova tra 15 minuti.')
+        error = 'Zu viele Versuche. In 15 Minuten erneut versuchen.' if lang == 'de' else 'Troppi tentativi. Riprova tra 15 minuti.'
+        return RedirectResponse(f'../{token}?error={urllib.parse.quote(error)}', status_code=303)
     pin_hash = get_setting('group_pin_hash')
     try:
         valid = bool(pin_hash and argon2.verify(pin, pin_hash))
@@ -994,7 +996,8 @@ def group_unlock(request: Request, token: str, pin: str = Form(...)):
     if not valid:
         attempts.append(current)
         PIN_ATTEMPTS[key] = attempts
-        raise HTTPException(403, 'Ungültiges Gruppenpasswort' if lang == 'de' else 'Password di gruppo non valida')
+        error = 'Ungültiges Gruppenpasswort' if lang == 'de' else 'Password di gruppo non valida'
+        return RedirectResponse(f'../{token}?error={urllib.parse.quote(error)}', status_code=303)
     PIN_ATTEMPTS.pop(key, None)
     response = RedirectResponse(f'../{token}', status_code=303)
     response.set_cookie('hm_session', serializer().dumps({'group': token}), max_age=86400, httponly=True, secure=True, samesite='lax')
@@ -1002,7 +1005,7 @@ def group_unlock(request: Request, token: str, pin: str = Form(...)):
 
 
 @public_app.get('/r/{token}', response_class=HTMLResponse)
-def report_form(request: Request, token: str):
+def report_form(request: Request, token: str, error: str = ''):
     lang = public_language(request)
     con = db()
     zone = con.execute('SELECT * FROM zones WHERE token=? AND active=1', (token,)).fetchone()
@@ -1012,7 +1015,8 @@ def report_form(request: Request, token: str):
     if not get_setting('pin_hash'):
         return page(public_text(lang, 'not_configured'), f'<div class="public-card"><div class="success"><h1>{public_text(lang, "unavailable")}</h1><p>{public_text(lang, "configure_password")}</p></div></div>', public=True, lang=lang, close_on_back=True)
     if not session_zone(request, token):
-        return page(public_text(lang, 'report'), f'''<div class="public-card"><h1>{public_text(lang, 'report')}</h1><span class="muted">{public_text(lang, 'zone')}: <b>{esc(zone["name"])}</b> · {public_text(lang, 'enter_password')}</span><form method="post" action="{esc(token)}/unlock"><label>{public_text(lang, 'password')}</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" placeholder="{public_text(lang, 'password_placeholder')}" required><button>{public_text(lang, 'login')}</button></form></div>''', public=True, lang=lang, close_on_back=True)
+        error_notice = f'<div class="notice warning" role="alert"><b>⚠ {esc(error)}</b></div>' if error else ''
+        return page(public_text(lang, 'report'), f'''<div class="public-card"><h1>{public_text(lang, 'report')}</h1><span class="muted">{public_text(lang, 'zone')}: <b>{esc(zone["name"])}</b> · {public_text(lang, 'enter_password')}</span>{error_notice}<form method="post" action="{esc(token)}/unlock"><label>{public_text(lang, 'password')}</label><input type="text" name="pin" minlength="6" maxlength="64" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="-webkit-text-security:disc" placeholder="{public_text(lang, 'password_placeholder')}" required autofocus><button>{public_text(lang, 'login')}</button></form></div>''', public=True, lang=lang, close_on_back=True)
     categories = (
         (('Elettrico', 'Elektrik'), ('Idraulico', 'Sanitär / Wasser'), ('Climatizzazione', 'Klimaanlage'), ('Porta/Finestra', 'Tür / Fenster'), ('Attrezzatura cucina', 'Küchengerät'), ('Altro', 'Sonstiges'))
         if lang == 'de' else
@@ -1053,7 +1057,8 @@ def unlock(request: Request, token: str, pin: str = Form(...)):
     current = time.time()
     attempts = [stamp for stamp in PIN_ATTEMPTS.get(key, []) if current - stamp < PIN_WINDOW_SECONDS]
     if len(attempts) >= PIN_MAX_ATTEMPTS:
-        raise HTTPException(429, 'Zu viele Versuche. In 15 Minuten erneut versuchen.' if lang == 'de' else 'Troppi tentativi. Riprova tra 15 minuti.')
+        error = 'Zu viele Versuche. In 15 Minuten erneut versuchen.' if lang == 'de' else 'Troppi tentativi. Riprova tra 15 minuti.'
+        return RedirectResponse(f'../{token}?error={urllib.parse.quote(error)}', status_code=303)
     pin_hash = get_setting('pin_hash')
     try:
         valid = bool(pin_hash and argon2.verify(pin, pin_hash))
@@ -1062,7 +1067,8 @@ def unlock(request: Request, token: str, pin: str = Form(...)):
     if not valid:
         attempts.append(current)
         PIN_ATTEMPTS[key] = attempts
-        raise HTTPException(403, 'Ungültiges Passwort' if lang == 'de' else 'Password non valida')
+        error = 'Ungültiges Passwort' if lang == 'de' else 'Password non valida'
+        return RedirectResponse(f'../{token}?error={urllib.parse.quote(error)}', status_code=303)
     PIN_ATTEMPTS.pop(key, None)
     value = serializer().dumps({'zone': token})
     response = RedirectResponse(f'../{token}', status_code=303)
