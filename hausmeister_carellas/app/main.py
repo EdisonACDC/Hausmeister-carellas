@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.2.1'
+APP_VERSION = '1.2.2'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -167,6 +167,41 @@ def notification_devices():
     devices = [{'id': secrets.token_hex(6), 'name': 'iPhone Marius', 'service': service, 'enabled': True}]
     save_notification_devices(devices)
     return devices
+
+
+def discover_mobile_app_services():
+    token = __import__('os').environ.get('SUPERVISOR_TOKEN', '')
+    if not token:
+        return [], 'Token Supervisor non disponibile'
+    request = urllib.request.Request(
+        'http://supervisor/core/api/services',
+        headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+        method='GET',
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode())
+        services = set()
+        for domain in payload if isinstance(payload, list) else []:
+            if not isinstance(domain, dict) or domain.get('domain') != 'notify':
+                continue
+            definitions = domain.get('services') or {}
+            if not isinstance(definitions, dict):
+                continue
+            for service in definitions:
+                service = normalize_notify_service(service)
+                if service.startswith('mobile_app_'):
+                    services.add(service)
+        return sorted(services), ''
+    except urllib.error.HTTPError as exc:
+        return [], f'Home Assistant ha risposto con errore HTTP {exc.code}'
+    except Exception as exc:
+        return [], f'Impossibile leggere i dispositivi: {type(exc).__name__}: {exc}'
+
+
+def mobile_device_name(service: str):
+    words = service.removeprefix('mobile_app_').replace('_', ' ').split()
+    return ' '.join(word.upper() if word.lower() in {'ios', 'ipad'} else word.capitalize() for word in words) or 'Dispositivo mobile'
 
 
 def notify_device(service: str, message: str, title: str = 'Hausmeister Carellas', url: str = ''):
@@ -559,9 +594,10 @@ def settings_page(message: str = ''):
         device_cards += f'''<div class="card span-6"><h3>{esc(device.get('name') or 'Dispositivo')}</h3><form method="post" action="settings/device/{device_id}/update"><label>Nome dispositivo</label><input name="name" value="{esc(device.get('name'))}" maxlength="80" required><label>Entità/azione di notifica</label><input name="service" value="{esc(device.get('service'))}" maxlength="120" placeholder="mobile_app_iphone_marius" required><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {checked} style="width:auto;margin:0"> Dispositivo attivo</label><button type="submit">Salva modifiche</button></form><div class="actions" style="margin-top:10px"><form method="post" action="settings/device/{device_id}/test"><button type="submit">Invia prova</button></form><form method="post" action="settings/device/{device_id}/delete" onsubmit="return confirm('Eliminare questo dispositivo?')"><button type="submit" class="danger">Elimina</button></form></div></div>'''
     if not device_cards:
         device_cards = '<div class="card span-12"><p class="muted">Nessun dispositivo configurato.</p></div>'
+    discovery_status = get_setting('notification_discovery_status', 'Premi il pulsante per cercare automaticamente i telefoni registrati nell’app Home Assistant.')
     translation = options.get('translation_url') or 'Automatica integrata (Google con MyMemory di riserva)'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/device"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></div>{device_cards}<div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
+    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/devices/discover"><button type="submit">⌕ Rileva dispositivi da Home Assistant</button></form><div class="notice" style="margin-top:12px"><b>Diagnostica rilevamento:</b><br>{esc(discovery_status)}</div><details><summary><b>Aggiunta manuale</b></summary><form method="post" action="settings/device" style="margin-top:12px"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></details></div>{device_cards}<div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
 
 
 @admin_app.get('/settings/group-qr')
@@ -584,6 +620,28 @@ def validate_notification_device(name: str, service: str):
     if not service or len(service) > 120 or not all(char.isalnum() or char == '_' for char in service):
         raise HTTPException(400, 'Entità di notifica non valida')
     return name, service
+
+
+@admin_app.post('/settings/devices/discover')
+def discover_notification_devices():
+    services, error = discover_mobile_app_services()
+    if error:
+        set_setting('notification_discovery_status', error)
+        return RedirectResponse('../../settings?message=' + urllib.parse.quote(error), status_code=303)
+    devices = notification_devices()
+    existing = {normalize_notify_service(device.get('service', '')) for device in devices}
+    added = 0
+    for service in services:
+        if service not in existing:
+            devices.append({'id': secrets.token_hex(6), 'name': mobile_device_name(service), 'service': service, 'enabled': True})
+            existing.add(service)
+            added += 1
+    save_notification_devices(devices)
+    status = f'Home Assistant collegato correttamente. Rilevati {len(services)} dispositivi mobili; aggiunti {added} nuovi.'
+    if not services:
+        status += ' Nessuna azione mobile_app trovata: apri almeno una volta l’app Home Assistant sul telefono e controlla la registrazione del dispositivo.'
+    set_setting('notification_discovery_status', status)
+    return RedirectResponse('../../settings?message=' + urllib.parse.quote(status), status_code=303)
 
 
 @admin_app.post('/settings/device')
