@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.2.0'
+APP_VERSION = '1.2.1'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -143,11 +143,34 @@ def public_base_url():
     return (load_options().get('public_base_url') or '').strip().rstrip('/')
 
 
-def notify_home_assistant(message: str, title: str = 'Hausmeister Carellas', url: str = ''):
-    options = load_options()
-    service = (options.get('notify_service') or 'mobile_app_iphone_marius').strip().removeprefix('notify.')
+def normalize_notify_service(service: str):
+    service = (service or '').strip().removeprefix('notify.')
     if service == 'iphone_marius':
         service = 'mobile_app_iphone_marius'
+    return service
+
+
+def save_notification_devices(devices):
+    set_setting('notification_devices', json.dumps(devices, ensure_ascii=False))
+
+
+def notification_devices():
+    raw = get_setting('notification_devices', '')
+    if raw:
+        try:
+            devices = json.loads(raw)
+            if isinstance(devices, list):
+                return devices
+        except (TypeError, ValueError):
+            pass
+    service = normalize_notify_service(load_options().get('notify_service') or 'mobile_app_iphone_marius')
+    devices = [{'id': secrets.token_hex(6), 'name': 'iPhone Marius', 'service': service, 'enabled': True}]
+    save_notification_devices(devices)
+    return devices
+
+
+def notify_device(service: str, message: str, title: str = 'Hausmeister Carellas', url: str = ''):
+    service = normalize_notify_service(service)
     token = __import__('os').environ.get('SUPERVISOR_TOKEN', '')
     if not service or not token:
         return False, 'Servizio di notifica non configurato'
@@ -165,6 +188,23 @@ def notify_home_assistant(message: str, title: str = 'Hausmeister Carellas', url
             return 200 <= response.status < 300, 'Notifica inviata'
     except Exception as exc:
         return False, f'Errore notifica: {exc}'
+
+
+def notify_home_assistant(message: str, title: str = 'Hausmeister Carellas', url: str = ''):
+    enabled = [device for device in notification_devices() if device.get('enabled', True)]
+    if not enabled:
+        return False, 'Nessun dispositivo attivo'
+    failures = []
+    sent = 0
+    for device in enabled:
+        ok, result = notify_device(device.get('service', ''), message, title, url)
+        if ok:
+            sent += 1
+        else:
+            failures.append(f'{device.get("name", "Dispositivo")}: {result}')
+    if failures:
+        return False, f'Inviate {sent}/{len(enabled)} notifiche. ' + ' | '.join(failures)
+    return True, f'Notifica inviata a {sent} dispositivi'
 
 
 def translate_text(text: str, target: str):
@@ -511,10 +551,17 @@ def settings_page(message: str = ''):
     group_pin = get_setting('group_pin_plain', '')
     group_url = group_public_url()
     base = options.get('public_base_url') or 'Non configurato'
-    notify = options.get('notify_service') or 'mobile_app_iphone_marius'
+    devices = notification_devices()
+    device_cards = ''
+    for device in devices:
+        device_id = esc(device.get('id', ''))
+        checked = 'checked' if device.get('enabled', True) else ''
+        device_cards += f'''<div class="card span-6"><h3>{esc(device.get('name') or 'Dispositivo')}</h3><form method="post" action="settings/device/{device_id}/update"><label>Nome dispositivo</label><input name="name" value="{esc(device.get('name'))}" maxlength="80" required><label>Entità/azione di notifica</label><input name="service" value="{esc(device.get('service'))}" maxlength="120" placeholder="mobile_app_iphone_marius" required><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {checked} style="width:auto;margin:0"> Dispositivo attivo</label><button type="submit">Salva modifiche</button></form><div class="actions" style="margin-top:10px"><form method="post" action="settings/device/{device_id}/test"><button type="submit">Invia prova</button></form><form method="post" action="settings/device/{device_id}/delete" onsubmit="return confirm('Eliminare questo dispositivo?')"><button type="submit" class="danger">Elimina</button></form></div></div>'''
+    if not device_cards:
+        device_cards = '<div class="card span-12"><p class="muted">Nessun dispositivo configurato.</p></div>'
     translation = options.get('translation_url') or 'Automatica integrata (Google con MyMemory di riserva)'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Servizio notifiche:</b><br>{esc(notify)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">Questi valori si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p><form method="post" action="settings/test-notification"><button>Invia notifica di prova</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
+    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/device"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></div>{device_cards}<div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
 
 
 @admin_app.get('/settings/group-qr')
@@ -529,10 +576,55 @@ def group_qr(download: int = 0):
     return StreamingResponse(buffer, media_type='image/png', headers={'Content-Disposition': f'{disposition}; filename="qr-tutte-le-zone.png"'})
 
 
-@admin_app.post('/settings/test-notification')
-def test_notification():
-    ok, message = notify_home_assistant('Notifica di prova inviata correttamente.')
-    return RedirectResponse(f'../settings?message={urllib.parse.quote(message)}', status_code=303)
+def validate_notification_device(name: str, service: str):
+    name = name.strip()
+    service = normalize_notify_service(service)
+    if not name or len(name) > 80:
+        raise HTTPException(400, 'Nome dispositivo non valido')
+    if not service or len(service) > 120 or not all(char.isalnum() or char == '_' for char in service):
+        raise HTTPException(400, 'Entità di notifica non valida')
+    return name, service
+
+
+@admin_app.post('/settings/device')
+def add_notification_device(name: str = Form(...), service: str = Form(...)):
+    name, service = validate_notification_device(name, service)
+    devices = notification_devices()
+    devices.append({'id': secrets.token_hex(6), 'name': name, 'service': service, 'enabled': True})
+    save_notification_devices(devices)
+    return RedirectResponse('../settings?message=Dispositivo%20aggiunto', status_code=303)
+
+
+@admin_app.post('/settings/device/{device_id}/update')
+def update_notification_device(device_id: str, name: str = Form(...), service: str = Form(...), enabled: str = Form('')):
+    name, service = validate_notification_device(name, service)
+    devices = notification_devices()
+    for device in devices:
+        if device.get('id') == device_id:
+            device.update({'name': name, 'service': service, 'enabled': enabled == '1'})
+            save_notification_devices(devices)
+            return RedirectResponse('../../../settings?message=Dispositivo%20aggiornato', status_code=303)
+    raise HTTPException(404, 'Dispositivo non trovato')
+
+
+@admin_app.post('/settings/device/{device_id}/delete')
+def delete_notification_device(device_id: str):
+    devices = notification_devices()
+    updated = [device for device in devices if device.get('id') != device_id]
+    if len(updated) == len(devices):
+        raise HTTPException(404, 'Dispositivo non trovato')
+    save_notification_devices(updated)
+    return RedirectResponse('../../../settings?message=Dispositivo%20eliminato', status_code=303)
+
+
+@admin_app.post('/settings/device/{device_id}/test')
+def test_notification_device(device_id: str):
+    device = next((item for item in notification_devices() if item.get('id') == device_id), None)
+    if not device:
+        raise HTTPException(404, 'Dispositivo non trovato')
+    ok, message = notify_device(device.get('service', ''), 'Notifica di prova inviata correttamente.')
+    result = f'{device.get("name", "Dispositivo")}: {message}'
+    return RedirectResponse(f'../../../settings?message={urllib.parse.quote(result)}', status_code=303)
 
 
 @admin_app.get('/settings/backup')
