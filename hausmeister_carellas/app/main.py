@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.1.1'
+APP_VERSION = '1.1.2'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -611,7 +611,7 @@ def group_form(request: Request, token: str):
         except BadSignature:
             pass
     if not unlocked:
-        return page('Accesso alle zone', f'''<div class="public-card"><h1>Tutte le zone</h1><span class="muted">Inserisci il PIN del QR di gruppo</span><form method="post" action="{esc(token)}/unlock"><label>PIN di gruppo</label><input type="password" name="pin" inputmode="numeric" autocomplete="one-time-code" required placeholder="Inserisci PIN"><button>Accedi</button></form></div>''', public=True)
+        return page('Accesso alle zone', f'''<div class="public-card"><h1>Tutte le zone</h1><span class="muted">Inserisci il PIN del QR di gruppo</span><form method="post" action="{esc(token)}/unlock"><label>PIN di gruppo</label><input type="text" name="pin" inputmode="numeric" pattern="[0-9]*" minlength="6" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" style="-webkit-text-security:disc" required placeholder="Inserisci PIN"><button>Accedi</button></form></div>''', public=True)
     con = db()
     zones = con.execute('SELECT * FROM zones WHERE active=1 ORDER BY name').fetchall()
     con.close()
@@ -654,7 +654,7 @@ def report_form(request: Request, token: str):
     if not get_setting('pin_hash'):
         return page('Servizio non configurato', '<div class="public-card"><div class="success"><h1>Servizio non disponibile</h1><p>Il responsabile deve configurare il PIN.</p></div></div>', public=True)
     if not session_zone(request, token):
-        return page('Segnalazione guasto', f'''<div class="public-card"><h1>Segnalazione guasto</h1><span class="muted">Zona: <b>{esc(zone["name"])}</b> · Inserisci il PIN per accedere</span><form method="post" action="{esc(token)}/unlock"><label>PIN di accesso</label><input type="password" name="pin" autocomplete="one-time-code" inputmode="numeric" placeholder="Inserisci PIN" required><button>Accedi</button></form></div>''', public=True)
+        return page('Segnalazione guasto', f'''<div class="public-card"><h1>Segnalazione guasto</h1><span class="muted">Zona: <b>{esc(zone["name"])}</b> · Inserisci il PIN per accedere</span><form method="post" action="{esc(token)}/unlock"><label>PIN di accesso</label><input type="text" name="pin" inputmode="numeric" pattern="[0-9]*" minlength="6" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" style="-webkit-text-security:disc" placeholder="Inserisci PIN" required><button>Accedi</button></form></div>''', public=True)
     return page('Nuova segnalazione', f'''<div class="public-card"><h1>Nuova segnalazione</h1><span class="muted">Zona selezionata: <b>{esc(zone["name"])}</b></span><form method="post" enctype="multipart/form-data" action="{esc(token)}/submit"><label>Nome e cognome *</label><input name="reporter_name" maxlength="120" required placeholder="Inserisci il tuo nome e cognome"><label>Tipo di guasto *</label><select name="category" required><option value="">Seleziona la categoria</option><option value="Elettrico">Elettrico</option><option value="Idraulico">Idraulico</option><option value="Climatizzazione">Climatizzazione</option><option value="Porta/Finestra">Porta/Finestra</option><option value="Attrezzatura cucina">Attrezzatura cucina</option><option value="Altro">Altro</option></select><label>Priorità</label><select name="priority"><option>Normale</option><option>Bassa</option><option>Alta</option><option>Urgente</option></select><label>Descrizione *</label><textarea name="description" maxlength="4000" rows="6" required placeholder="Descrivi il problema nel dettaglio"></textarea><label>Foto (opzionale, massimo 5)</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple><button>➤ Invia segnalazione</button></form></div>''', public=True)
 
 
