@@ -2,7 +2,7 @@
 
 Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ristorante e delle camere del personale.
 
-## Funzioni della versione 1.3.3
+## Funzioni della versione 1.4.0
 
 - Interfaccia amministrativa dentro Home Assistant tramite Ingress.
 - Creazione zone personalizzate.
@@ -31,6 +31,11 @@ Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ris
 - Nel Portale Titolare la voce Impostazioni resta visibile ma disabilitata: PIN, telefoni e configurazioni tecniche rimangono riservati all'amministratore.
 - Dashboard, ticket, zone, QR e barra laterale del Portale Titolare cambiano automaticamente tra italiano e tedesco in base alla lingua del browser.
 - Stampa dedicata del solo QR, senza dashboard o menu, con dimensioni selezionabili da 5 a 15 cm e limite minimo di sicurezza a 5 cm.
+- Magazzino materiali professionale con codice articolo, categoria, descrizione, posizione, fornitore, unità di misura, quantità e soglia di riordino personalizzabile (predefinita a 3).
+- Foto dell'articolo caricabile o scattabile direttamente dal telefono, con interfaccia adattata a PC, tablet e smartphone.
+- Carico e scarico delle quantità con storico dei movimenti; non è possibile portare la disponibilità sotto zero.
+- Avviso rosso nella Dashboard e nella lista materiali quando un articolo raggiunge o scende sotto la propria soglia di riordino.
+- Magazzino disponibile anche nel Portale Titolare, automaticamente in italiano o tedesco; foto e dati sono inclusi nel backup esistente.
 - Attivazione/disattivazione delle zone e rigenerazione dei QR.
 - Download e stampa dei QR.
 - Protezione contro tentativi ripetuti del PIN.
