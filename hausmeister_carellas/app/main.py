@@ -28,7 +28,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.3.3'
+APP_VERSION = '1.4.0'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -87,6 +87,32 @@ def init_db():
       created_at TEXT NOT NULL,
       FOREIGN KEY(ticket_id) REFERENCES tickets(id)
     );
+    CREATE TABLE IF NOT EXISTS materials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      code TEXT,
+      category TEXT,
+      description TEXT,
+      location TEXT,
+      supplier TEXT,
+      unit TEXT NOT NULL DEFAULT 'pz',
+      quantity INTEGER NOT NULL DEFAULT 0,
+      reorder_level INTEGER NOT NULL DEFAULT 3,
+      photo_stored_name TEXT,
+      photo_original_name TEXT,
+      photo_content_type TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS material_movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      material_id INTEGER NOT NULL,
+      movement_type TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(material_id) REFERENCES materials(id)
+    );
     ''')
     columns = {row['name'] for row in con.execute('PRAGMA table_info(tickets)').fetchall()}
     for name, sql_type, default in (
@@ -100,6 +126,8 @@ def init_db():
             con.execute(f'ALTER TABLE tickets ADD COLUMN {name} {sql_type}{default_sql}')
     con.execute('CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status)')
     con.execute('CREATE INDEX IF NOT EXISTS idx_tickets_zone ON tickets(zone_id)')
+    con.execute('CREATE INDEX IF NOT EXISTS idx_materials_name ON materials(name)')
+    con.execute('CREATE INDEX IF NOT EXISTS idx_material_movements_material ON material_movements(material_id)')
     con.execute('PRAGMA journal_mode=WAL')
     con.commit()
     con.close()
@@ -416,6 +444,18 @@ MANAGER_TEXT = {
         'delete_zone': 'Elimina zona', 'linked_tickets': 'Ticket collegati',
         'delete_zone_help': 'Eliminando la zona saranno eliminati anche i suoi ticket e tutte le fotografie.',
         'admin_only': "Riservato all'amministratore",
+        'materials': 'Magazzino materiali', 'materials_short': 'Materiali', 'low_stock': 'Materiali da acquistare',
+        'stock_ok': 'Scorta disponibile', 'buy_now': 'Da acquistare', 'quantity': 'Quantità', 'threshold': 'Soglia avviso',
+        'code': 'Codice articolo', 'description': 'Descrizione', 'category_material': 'Categoria',
+        'location': 'Posizione', 'supplier': 'Fornitore', 'unit': 'Unità', 'photo_article': 'Foto articolo',
+        'take_photo': 'Scatta o scegli una foto', 'add_material': 'Aggiungi articolo', 'new_material': 'Nuovo articolo',
+        'edit_material': 'Modifica articolo', 'save_material': 'Salva articolo', 'load_stock': 'Carica materiale',
+        'unload_stock': 'Scarica materiale', 'amount': 'Quantità movimento', 'note': 'Nota',
+        'movements': 'Movimenti recenti', 'no_movements': 'Nessun movimento', 'delete_material': 'Elimina articolo',
+        'all_materials': 'Tutti gli articoli', 'only_low': 'Solo da acquistare', 'no_materials': 'Nessun articolo presente',
+        'current_stock': 'Scorta attuale', 'remove_photo': 'Elimina la foto attuale',
+        'stock_history_help': 'Usa carico/scarico per mantenere lo storico.',
+        'delete_material_confirm': 'Eliminare definitivamente questo articolo e la sua foto?',
     },
     'de': {
         'portal': 'Inhaberportal', 'login': 'Anmeldung für den Inhaber', 'username': 'Benutzername',
@@ -438,6 +478,18 @@ MANAGER_TEXT = {
         'delete_zone': 'Bereich löschen', 'linked_tickets': 'Verknüpfte Tickets',
         'delete_zone_help': 'Beim Löschen des Bereichs werden auch seine Tickets und alle Fotos gelöscht.',
         'admin_only': 'Nur für den Administrator',
+        'materials': 'Materiallager', 'materials_short': 'Materialien', 'low_stock': 'Material nachbestellen',
+        'stock_ok': 'Bestand verfügbar', 'buy_now': 'Nachbestellen', 'quantity': 'Menge', 'threshold': 'Meldebestand',
+        'code': 'Artikelnummer', 'description': 'Beschreibung', 'category_material': 'Kategorie',
+        'location': 'Lagerort', 'supplier': 'Lieferant', 'unit': 'Einheit', 'photo_article': 'Artikelfoto',
+        'take_photo': 'Foto aufnehmen oder auswählen', 'add_material': 'Artikel hinzufügen', 'new_material': 'Neuer Artikel',
+        'edit_material': 'Artikel bearbeiten', 'save_material': 'Artikel speichern', 'load_stock': 'Material einlagern',
+        'unload_stock': 'Material entnehmen', 'amount': 'Bewegungsmenge', 'note': 'Notiz',
+        'movements': 'Letzte Bewegungen', 'no_movements': 'Keine Bewegungen', 'delete_material': 'Artikel löschen',
+        'all_materials': 'Alle Artikel', 'only_low': 'Nur nachzubestellen', 'no_materials': 'Keine Artikel vorhanden',
+        'current_stock': 'Aktueller Bestand', 'remove_photo': 'Aktuelles Foto löschen',
+        'stock_history_help': 'Einlagern/Entnehmen verwenden, damit der Verlauf erhalten bleibt.',
+        'delete_material_confirm': 'Diesen Artikel und sein Foto endgültig löschen?',
     },
 }
 
@@ -544,12 +596,12 @@ body{{overflow-x:hidden}}button,input,textarea,select{{font:inherit}}a{{color:in
 .content{{min-width:0}}.topbar{{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:16px 22px;background:#fff;border-bottom:1px solid var(--line)}}.topbar h1{{font-size:24px;margin:0}}.topbar small{{color:var(--muted)}}.status-dot{{padding:7px 11px;background:#eef7ea;border-radius:999px;color:#2e6c2f;font-size:13px;white-space:nowrap}}main{{padding:18px;max-width:1480px;margin:0 auto;width:100%}}.nav{{display:flex;align-items:center;gap:10px;margin:0 0 12px}}
 .card{{background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--shadow);border:1px solid #e9ecef;min-width:0;overflow-wrap:anywhere}}h1,h2,h3{{margin-top:0}}h2{{font-size:20px}}.grid{{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}}.span-3{{grid-column:span 3}}.span-4{{grid-column:span 4}}.span-5{{grid-column:span 5}}.span-6{{grid-column:span 6}}.span-7{{grid-column:span 7}}.span-8{{grid-column:span 8}}.span-12{{grid-column:span 12}}.metric{{display:flex;align-items:center;gap:13px}}.metric-icon{{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#eef1d8;color:var(--olive);font-size:20px}}.metric strong{{font-size:28px;display:block}}.muted{{color:var(--muted);font-size:14px}}.pill{{display:inline-block;padding:4px 9px;border-radius:999px;background:#eef2f7;font-size:12px}}.pill.open{{background:#fff2dd;color:#a75d00}}.pill.done{{background:#e8f6e5;color:#2f7c35}}.priority-dot{{display:inline-block;width:13px;height:13px;border-radius:50%;background:#f44336;box-shadow:0 0 0 4px #f4433630;margin-right:9px;vertical-align:-1px}}.priority-high td{{background:#ffebee}}.priority-high td:first-child{{box-shadow:inset 6px 0 #d32f2f}}.priority-urgent td{{background:#c62828;color:#fff;border-color:#e57373}}.priority-urgent a{{color:#fff}}.priority-urgent .pill{{background:#fff;color:#a91515}}.priority-urgent .priority-dot{{background:#fff;box-shadow:0 0 0 4px #ffffff45}}.priority-alert{{background:#c62828;color:#fff;padding:14px 16px;border-radius:12px;margin-bottom:14px;font-weight:800;font-size:17px}}
 input,textarea,select{{width:100%;padding:13px 14px;margin:7px 0 15px;border:1px solid #cfd6dc;border-radius:10px;background:#fff;font-size:16px}}textarea{{resize:vertical;min-height:130px}}label{{font-weight:600;font-size:14px}}button,.btn{{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:10px;padding:12px 16px;background:var(--olive);color:#fff;text-decoration:none;font-weight:700;cursor:pointer;min-height:44px}}button:hover,.btn:hover{{background:var(--olive-dark)}}.back-btn{{background:#f1f3f4;color:#263238}}.back-btn:hover{{background:#e5e7e9}}.danger{{background:var(--danger)}}.inline{{display:inline-block;margin:4px 8px 4px 0}}.actions{{display:flex;gap:9px;flex-wrap:wrap}}.table-wrap{{overflow:auto;width:100%;-webkit-overflow-scrolling:touch}}table{{width:100%;border-collapse:collapse;min-width:620px}}th,td{{text-align:left;padding:11px 9px;border-bottom:1px solid var(--line);vertical-align:middle}}th{{font-size:13px;color:#4b5563}}img.qr{{width:240px;max-width:100%;height:auto}}.zone-row{{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}}.zone-row:last-child{{border-bottom:0}}.photos{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}}.photos a{{display:block}}.photos img{{width:100%;height:160px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}}.notice{{padding:12px;border-radius:10px;background:#eef7ea;margin-bottom:14px}}.warning{{background:#fff3dc}}.filters{{display:grid;grid-template-columns:2fr 1fr auto;gap:8px;align-items:end}}.filters input,.filters select{{margin-bottom:0}}
-.public-shell{{min-height:100vh;background:linear-gradient(145deg,#fff 0%,var(--cream) 100%);display:grid;place-items:center;padding:24px}}.public-wrap{{width:min(720px,100%);margin:auto}}.public-brand{{width:300px;max-width:80%;margin:0 auto 12px}}.public-card{{background:#fff;border:1px solid #ebe8dc;border-radius:18px;padding:24px;box-shadow:0 12px 35px #0000000f}}.public-card h1{{text-align:center;margin-bottom:6px}}.public-card>.muted{{text-align:center;display:block;margin-bottom:20px}}.public-card button{{width:100%;background:var(--olive)}}.success{{text-align:center;padding:22px 6px}}.success-mark{{width:64px;height:64px;border-radius:50%;background:#eef7ea;color:#2e7d32;display:grid;place-items:center;margin:0 auto 15px;font-size:34px}}.qr-size-picker{{width:auto;min-width:150px;margin:0;padding:11px 12px}}
+.public-shell{{min-height:100vh;background:linear-gradient(145deg,#fff 0%,var(--cream) 100%);display:grid;place-items:center;padding:24px}}.public-wrap{{width:min(720px,100%);margin:auto}}.public-brand{{width:300px;max-width:80%;margin:0 auto 12px}}.public-card{{background:#fff;border:1px solid #ebe8dc;border-radius:18px;padding:24px;box-shadow:0 12px 35px #0000000f}}.public-card h1{{text-align:center;margin-bottom:6px}}.public-card>.muted{{text-align:center;display:block;margin-bottom:20px}}.public-card button{{width:100%;background:var(--olive)}}.success{{text-align:center;padding:22px 6px}}.success-mark{{width:64px;height:64px;border-radius:50%;background:#eef7ea;color:#2e7d32;display:grid;place-items:center;margin:0 auto 15px;font-size:34px}}.qr-size-picker{{width:auto;min-width:150px;margin:0;padding:11px 12px}}.stock-alert{{background:#ffebee;border:2px solid #d32f2f;border-radius:16px;padding:16px;margin-bottom:14px;color:#8e1616}}.stock-alert h2{{margin:0 0 10px}}.stock-alert-list{{display:flex;gap:8px;flex-wrap:wrap}}.stock-alert-item{{background:#fff;border:1px solid #ef9a9a;border-radius:10px;padding:9px 12px;text-decoration:none;font-weight:700}}.inventory-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:14px;margin-top:14px}}.material-card{{display:flex;flex-direction:column;gap:10px;text-decoration:none}}.material-card.low{{border:2px solid #d32f2f;background:#fff8f8}}.material-photo{{width:100%;height:175px;border-radius:11px;object-fit:cover;background:#eef1f2;border:1px solid var(--line)}}.material-placeholder{{width:100%;height:175px;border-radius:11px;display:grid;place-items:center;background:#eef1f2;color:#7b848c;font-size:44px}}.material-head{{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}}.stock-number{{font-size:28px;font-weight:800}}.stock-badge{{display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;background:#e8f6e5;color:#2f7c35;font-size:12px;font-weight:800}}.stock-badge.low{{background:#c62828;color:#fff}}.material-form-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}}.material-form-grid .full{{grid-column:1/-1}}.movement-row{{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}}
 @media print{{@page{{margin:10mm}}body.qr-printing{{background:#fff}}body.qr-printing *{{visibility:hidden!important}}body.qr-printing img.qr{{visibility:visible!important;position:fixed;left:10mm;top:10mm;width:var(--qr-print-size,10cm)!important;height:var(--qr-print-size,10cm)!important;max-width:none!important;object-fit:contain}}}}
 @media(max-width:1000px){{.admin-shell{{grid-template-columns:1fr}}.sidebar{{height:auto;position:relative;padding:10px 12px;display:flex;align-items:center;gap:8px;overflow-x:auto}}.sidebar .brand-wrap{{min-width:155px;margin:0;padding:5px}}.sidebar .brand-logo{{width:145px}}.side-link{{white-space:nowrap;margin:0}}.side-foot{{display:none}}.span-3{{grid-column:span 6}}.span-4,.span-5,.span-6,.span-7,.span-8{{grid-column:span 12}}}}
-@media(max-width:640px){{.topbar{{padding:12px 14px}}.topbar h1{{font-size:20px}}.status-dot{{display:none}}main{{padding:12px}}.grid{{gap:10px}}.span-3,.span-4,.span-5,.span-6,.span-7,.span-8,.span-12{{grid-column:span 12}}.card{{padding:15px;border-radius:14px}}.metric strong{{font-size:24px}}.public-shell{{padding:14px}}.public-card{{padding:18px 15px}}.public-brand{{max-width:88%;width:270px}}.actions button,.actions .btn{{flex:1 1 140px}}.nav{{margin-bottom:8px}}.filters{{grid-template-columns:1fr}}}}
+@media(max-width:640px){{.topbar{{padding:12px 14px}}.topbar h1{{font-size:20px}}.status-dot{{display:none}}main{{padding:12px}}.grid{{gap:10px}}.span-3,.span-4,.span-5,.span-6,.span-7,.span-8,.span-12{{grid-column:span 12}}.card{{padding:15px;border-radius:14px}}.metric strong{{font-size:24px}}.public-shell{{padding:14px}}.public-card{{padding:18px 15px}}.public-brand{{max-width:88%;width:270px}}.actions button,.actions .btn{{flex:1 1 140px}}.nav{{margin-bottom:8px}}.filters{{grid-template-columns:1fr}}.material-form-grid{{grid-template-columns:1fr}}.material-form-grid .full{{grid-column:auto}}.inventory-grid{{grid-template-columns:1fr}}}}
 </style><script>function adminGo(path){{const marker='/api/hassio_ingress/';const current=location.pathname;const start=current.indexOf(marker);if(start>=0){{const after=start+marker.length;const slash=current.indexOf('/',after);const base=slash>=0?current.slice(0,slash+1):current+'/';location.href=base+path;}}else{{location.href='/'+path;}}return false;}}function closePublicPage(){{window.close();setTimeout(function(){{if(!document.hidden&&history.length>1)history.back();}},180);}}function setupQrPrinting(){{document.querySelectorAll('button[onclick="window.print()"]') .forEach(function(button){{const german=document.documentElement.lang.toLowerCase().startsWith('de');const select=document.createElement('select');select.className='qr-size-picker';select.setAttribute('aria-label',german?'QR-Größe':'Dimensione QR');[[5,german?'5 cm (Minimum)':'5 cm (minimo)'],[7,'7 cm'],[10,'10 cm'],[12,'12 cm'],[15,'15 cm']].forEach(function(item){{const option=document.createElement('option');option.value=item[0];option.textContent=item[1];if(item[0]===10)option.selected=true;select.appendChild(option);}});button.parentNode.insertBefore(select,button);button.onclick=function(){{const size=Math.max(5,Math.min(15,Number(select.value)||10));document.documentElement.style.setProperty('--qr-print-size',size+'cm');document.body.classList.add('qr-printing');window.print();}};}});window.addEventListener('afterprint',function(){{document.body.classList.remove('qr-printing');}});}}document.addEventListener('DOMContentLoaded',setupQrPrinting);</script></head><body><div class="page {shell_class}">'''+(
-    f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="/manager">⌂ {manager_text(lang, 'dashboard')}</a><a class="side-link" href="/manager/tickets">☷ {manager_text(lang, 'tickets')}</a><a class="side-link" href="/manager/zones">⌖ {manager_text(lang, 'zones')}</a><span class="side-link disabled" aria-disabled="true" title="{manager_text(lang, 'admin_only')}">⚙ {manager_text(lang, 'settings')}</span><a class="side-link" href="/manager/logout">⇥ {manager_text(lang, 'logout')}</a><div class="side-foot">{manager_text(lang, 'portal')}<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Carellas Ristorante</small></div><div class="status-dot">● {manager_text(lang, 'portal')}</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if manager else f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="./" onclick="return adminGo('')">⌂ Dashboard</a><a class="side-link" href="tickets" onclick="return adminGo('tickets')">☷ Ticket</a><a class="side-link" href="zones" onclick="return adminGo('zones')">⌖ Zone / QR</a><a class="side-link" href="settings" onclick="return adminGo('settings')">⚙ Impostazioni</a><div class="side-foot">Hausmeister Carellas<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● Add-on in esecuzione</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if not public else f'''<div class="public-wrap"><div class="public-brand">{brand_logo()}</div><div class="nav">{back}</div>{body}</div>''')+'''</div></body></html>'''
+    f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="/manager">⌂ {manager_text(lang, 'dashboard')}</a><a class="side-link" href="/manager/tickets">☷ {manager_text(lang, 'tickets')}</a><a class="side-link" href="/manager/zones">⌖ {manager_text(lang, 'zones')}</a><a class="side-link" href="/manager/materials">▦ {manager_text(lang, 'materials')}</a><span class="side-link disabled" aria-disabled="true" title="{manager_text(lang, 'admin_only')}">⚙ {manager_text(lang, 'settings')}</span><a class="side-link" href="/manager/logout">⇥ {manager_text(lang, 'logout')}</a><div class="side-foot">{manager_text(lang, 'portal')}<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Carellas Ristorante</small></div><div class="status-dot">● {manager_text(lang, 'portal')}</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if manager else f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="./" onclick="return adminGo('')">⌂ Dashboard</a><a class="side-link" href="tickets" onclick="return adminGo('tickets')">☷ Ticket</a><a class="side-link" href="zones" onclick="return adminGo('zones')">⌖ Zone / QR</a><a class="side-link" href="materials" onclick="return adminGo('materials')">▦ Magazzino materiali</a><a class="side-link" href="settings" onclick="return adminGo('settings')">⚙ Impostazioni</a><div class="side-foot">Hausmeister Carellas<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● Add-on in esecuzione</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if not public else f'''<div class="public-wrap"><div class="public-brand">{brand_logo()}</div><div class="nav">{back}</div>{body}</div>''')+'''</div></body></html>'''
 
 
 def session_zone(request: Request, token: str):
@@ -561,6 +613,193 @@ def session_zone(request: Request, token: str):
         return data.get('zone') == token or data.get('group') == group_token()
     except BadSignature:
         return False
+
+
+def material_url(manager: bool, suffix: str = ''):
+    root = '/manager/material' if manager else 'material'
+    return f'{root}/{suffix}' if suffix else root
+
+
+def stock_warning_dashboard(lang: str = 'it', manager: bool = False):
+    con = db()
+    materials = con.execute('SELECT * FROM materials WHERE quantity<=reorder_level ORDER BY quantity ASC,name').fetchall()
+    con.close()
+    if not materials:
+        return ''
+    items = ''.join(
+        f'<a class="stock-alert-item" href="{material_url(manager, str(item["id"]))}">⚠ {esc(item["name"])} · {item["quantity"]} {esc(item["unit"])}</a>'
+        for item in materials
+    )
+    return f'<div class="stock-alert"><h2>⚠ {manager_text(lang, "low_stock")}</h2><div class="stock-alert-list">{items}</div></div>'
+
+
+def materials_page(manager: bool = False, lang: str = 'it', q: str = '', low: int = 0, message: str = ''):
+    query = 'SELECT * FROM materials WHERE 1=1'
+    params = []
+    if q.strip():
+        query += ' AND (name LIKE ? OR code LIKE ? OR category LIKE ? OR description LIKE ? OR location LIKE ? OR supplier LIKE ?)'
+        term = f'%{q.strip()}%'
+        params.extend([term] * 6)
+    if low:
+        query += ' AND quantity<=reorder_level'
+    query += ' ORDER BY CASE WHEN quantity<=reorder_level THEN 0 ELSE 1 END, name'
+    con = db()
+    materials = con.execute(query, params).fetchall()
+    con.close()
+    cards = ''
+    for item in materials:
+        low_stock = item['quantity'] <= item['reorder_level']
+        photo_url = material_url(manager, f'{item["id"]}/photo')
+        image = f'<img class="material-photo" src="{photo_url}" alt="{esc(item["name"])}" loading="lazy">' if item['photo_stored_name'] else '<div class="material-placeholder">▦</div>'
+        badge = manager_text(lang, 'buy_now') if low_stock else manager_text(lang, 'stock_ok')
+        meta = ' · '.join(value for value in (item['code'], item['category'], item['location']) if value)
+        cards += f'''<a class="card material-card {'low' if low_stock else ''}" href="{material_url(manager, str(item['id']))}">{image}<div class="material-head"><div><h2 style="margin-bottom:4px">{esc(item['name'])}</h2><span class="muted">{esc(meta)}</span></div><span class="stock-badge {'low' if low_stock else ''}">{'⚠' if low_stock else '✓'} {badge}</span></div><div><span class="stock-number">{item['quantity']}</span> {esc(item['unit'])}<br><span class="muted">{manager_text(lang, 'threshold')}: {item['reorder_level']} {esc(item['unit'])}</span></div><p style="margin:0">{esc(item['description'])}</p></a>'''
+    if not cards:
+        cards = f'<div class="card"><p class="muted">{manager_text(lang, "no_materials")}</p></div>'
+    create_action = material_url(manager)
+    notice = f'<div class="notice">{esc(message)}</div>' if message else ''
+    low_checked = 'checked' if low else ''
+    body = f'''{notice}<div class="card"><form class="filters" method="get"><div><label>{manager_text(lang, 'search')}</label><input name="q" value="{esc(q)}" placeholder="{manager_text(lang, 'code')}, {manager_text(lang, 'name')}, {manager_text(lang, 'category_material')}"></div><label style="display:flex;align-items:center;gap:8px;padding-bottom:11px"><input type="checkbox" name="low" value="1" {low_checked} style="width:auto;margin:0"> {manager_text(lang, 'only_low')}</label><button>{manager_text(lang, 'search')}</button></form></div><details class="card" style="margin-top:14px"><summary><b>＋ {manager_text(lang, 'new_material')}</b></summary><form method="post" action="{create_action}" enctype="multipart/form-data" style="margin-top:16px"><div class="material-form-grid"><div><label>{manager_text(lang, 'name')} *</label><input name="name" maxlength="120" required></div><div><label>{manager_text(lang, 'code')}</label><input name="code" maxlength="80"></div><div><label>{manager_text(lang, 'category_material')}</label><input name="category" maxlength="80"></div><div><label>{manager_text(lang, 'location')}</label><input name="location" maxlength="120"></div><div><label>{manager_text(lang, 'supplier')}</label><input name="supplier" maxlength="120"></div><div><label>{manager_text(lang, 'unit')}</label><select name="unit"><option value="pz">pz</option><option value="m">m</option><option value="kg">kg</option><option value="l">l</option><option value="conf.">conf.</option></select></div><div><label>{manager_text(lang, 'quantity')} *</label><input type="number" name="quantity" min="0" max="999999" value="0" required></div><div><label>{manager_text(lang, 'threshold')} *</label><input type="number" name="reorder_level" min="0" max="999999" value="3" required></div><div class="full"><label>{manager_text(lang, 'description')}</label><textarea name="description" maxlength="2000" rows="3"></textarea></div><div class="full"><label>{manager_text(lang, 'photo_article')}</label><input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment"><span class="muted">{manager_text(lang, 'take_photo')}</span></div></div><button type="submit">{manager_text(lang, 'add_material')}</button></form></details><div class="inventory-grid">{cards}</div>'''
+    return page(manager_text(lang, 'materials'), body, manager=manager, lang=lang)
+
+
+def material_detail_page(item, movements, manager: bool = False, lang: str = 'it', message: str = ''):
+    low_stock = item['quantity'] <= item['reorder_level']
+    detail_root = f'/manager/material/{item["id"]}' if manager else str(item['id'])
+    photo_url = f'{detail_root}/photo'
+    image = f'<img class="material-photo" src="{photo_url}" alt="{esc(item["name"])}">' if item['photo_stored_name'] else '<div class="material-placeholder">▦</div>'
+    update_action = f'{detail_root}/update'
+    movement_action = f'{detail_root}/movement'
+    delete_action = f'{detail_root}/delete'
+    unit_options = ''.join(f'<option value="{esc(unit)}" {"selected" if item["unit"] == unit else ""}>{esc(unit)}</option>' for unit in ('pz', 'm', 'kg', 'l', 'conf.'))
+    history = ''.join(f'<div class="movement-row"><div><b>{"+" if movement["quantity"] > 0 else ""}{movement["quantity"]} {esc(item["unit"])}</b><br><span class="muted">{esc(movement["note"])}</span></div><span class="muted">{esc(movement["created_at"][:16].replace("T", " "))}</span></div>' for movement in movements) or f'<p class="muted">{manager_text(lang, "no_movements")}</p>'
+    warning = f'<div class="stock-alert"><h2>⚠ {manager_text(lang, "buy_now")}</h2>{manager_text(lang, "current_stock")}: <b>{item["quantity"]} {esc(item["unit"])}</b></div>' if low_stock else ''
+    notice = f'<div class="notice">{esc(message)}</div>' if message else ''
+    body = f'''{notice}{warning}<div class="grid"><div class="card span-5">{image}<h2 style="margin-top:14px">{esc(item['name'])}</h2><p><b>{manager_text(lang, 'current_stock')}:</b> <span class="stock-number">{item['quantity']}</span> {esc(item['unit'])}</p><span class="stock-badge {'low' if low_stock else ''}">{'⚠' if low_stock else '✓'} {manager_text(lang, 'buy_now') if low_stock else manager_text(lang, 'stock_ok')}</span><h2 style="margin-top:22px">{manager_text(lang, 'load_stock')} / {manager_text(lang, 'unload_stock')}</h2><form method="post" action="{movement_action}"><label>{manager_text(lang, 'amount')}</label><input type="number" name="amount" min="1" max="999999" value="1" required><label>{manager_text(lang, 'note')}</label><input name="note" maxlength="300"><div class="actions"><button name="direction" value="in" type="submit">＋ {manager_text(lang, 'load_stock')}</button><button name="direction" value="out" type="submit" class="danger">− {manager_text(lang, 'unload_stock')}</button></div></form><h2 style="margin-top:22px">{manager_text(lang, 'movements')}</h2>{history}</div><div class="card span-7"><h2>{manager_text(lang, 'edit_material')}</h2><form method="post" action="{update_action}" enctype="multipart/form-data"><div class="material-form-grid"><div><label>{manager_text(lang, 'name')} *</label><input name="name" value="{esc(item['name'])}" maxlength="120" required></div><div><label>{manager_text(lang, 'code')}</label><input name="code" value="{esc(item['code'])}" maxlength="80"></div><div><label>{manager_text(lang, 'category_material')}</label><input name="category" value="{esc(item['category'])}" maxlength="80"></div><div><label>{manager_text(lang, 'location')}</label><input name="location" value="{esc(item['location'])}" maxlength="120"></div><div><label>{manager_text(lang, 'supplier')}</label><input name="supplier" value="{esc(item['supplier'])}" maxlength="120"></div><div><label>{manager_text(lang, 'unit')}</label><select name="unit">{unit_options}</select></div><div><label>{manager_text(lang, 'quantity')}</label><input type="number" value="{item['quantity']}" disabled><span class="muted">{manager_text(lang, 'stock_history_help')}</span></div><div><label>{manager_text(lang, 'threshold')}</label><input type="number" name="reorder_level" min="0" max="999999" value="{item['reorder_level']}" required></div><div class="full"><label>{manager_text(lang, 'description')}</label><textarea name="description" maxlength="2000" rows="4">{esc(item['description'])}</textarea></div><div class="full"><label>{manager_text(lang, 'photo_article')}</label><input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="remove_photo" value="1" style="width:auto;margin:0"> {manager_text(lang, 'remove_photo')}</label></div></div><button type="submit">{manager_text(lang, 'save_material')}</button></form><hr style="border:0;border-top:1px solid var(--line);margin:24px 0"><form method="post" action="{delete_action}" data-confirm="{manager_text(lang, 'delete_material_confirm')}" onsubmit="return confirm(this.dataset.confirm)"><button class="danger" type="submit">{manager_text(lang, 'delete_material')}</button></form></div></div>'''
+    return page(item['name'], body, manager=manager, lang=lang, back_url='/manager/materials' if manager else 'materials')
+
+
+def validate_material(name: str, unit: str, quantity: int = 0, reorder_level: int = 3):
+    name = name.strip()
+    allowed_units = {'pz', 'm', 'kg', 'l', 'conf.'}
+    if not name or len(name) > 120:
+        raise HTTPException(400, 'Nome articolo non valido')
+    if unit not in allowed_units:
+        raise HTTPException(400, 'Unità non valida')
+    if quantity < 0 or quantity > 999999 or reorder_level < 0 or reorder_level > 999999:
+        raise HTTPException(400, 'Quantità non valida')
+    return name
+
+
+async def store_material_photo(photo: Optional[UploadFile]):
+    if not photo or not photo.filename:
+        return None
+    if photo.content_type not in ALLOWED_TYPES:
+        raise HTTPException(400, 'Formato foto non supportato')
+    content = await photo.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, 'La foto supera 8 MB')
+    suffix = Path(photo.filename).suffix.lower()[:8]
+    stored = hashlib.sha256((secrets.token_hex(16) + photo.filename).encode()).hexdigest() + suffix
+    (UPLOAD_DIR / stored).write_bytes(content)
+    return stored, Path(photo.filename).name, photo.content_type
+
+
+def delete_material_photo(stored_name: str):
+    if not stored_name:
+        return
+    path = (UPLOAD_DIR / stored_name).resolve()
+    if path.parent == UPLOAD_DIR.resolve() and path.is_file():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+async def create_material_record(name: str, code: str, category: str, description: str, location: str, supplier: str, unit: str, quantity: int, reorder_level: int, photo: Optional[UploadFile]):
+    name = validate_material(name, unit, quantity, reorder_level)
+    photo_data = await store_material_photo(photo)
+    timestamp = now_iso()
+    con = db()
+    cur = con.execute('''INSERT INTO materials(name,code,category,description,location,supplier,unit,quantity,reorder_level,photo_stored_name,photo_original_name,photo_content_type,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (name, code.strip(), category.strip(), description.strip(), location.strip(), supplier.strip(), unit, quantity, reorder_level, photo_data[0] if photo_data else None, photo_data[1] if photo_data else None, photo_data[2] if photo_data else None, timestamp, timestamp))
+    material_id = cur.lastrowid
+    if quantity:
+        con.execute('INSERT INTO material_movements(material_id,movement_type,quantity,note,created_at) VALUES(?,?,?,?,?)', (material_id, 'initial', quantity, 'Quantità iniziale', timestamp))
+    con.commit()
+    con.close()
+    return material_id
+
+
+async def update_material_record(material_id: int, name: str, code: str, category: str, description: str, location: str, supplier: str, unit: str, reorder_level: int, remove_photo: str, photo: Optional[UploadFile]):
+    name = validate_material(name, unit, 0, reorder_level)
+    con = db()
+    item = con.execute('SELECT * FROM materials WHERE id=?', (material_id,)).fetchone()
+    con.close()
+    if not item:
+        raise HTTPException(404, 'Articolo non trovato')
+    photo_data = await store_material_photo(photo)
+    stored_name = item['photo_stored_name']
+    original_name = item['photo_original_name']
+    content_type = item['photo_content_type']
+    old_photo = ''
+    if photo_data:
+        old_photo = stored_name
+        stored_name, original_name, content_type = photo_data
+    elif remove_photo == '1':
+        old_photo = stored_name
+        stored_name = original_name = content_type = None
+    con = db()
+    con.execute('''UPDATE materials SET name=?,code=?,category=?,description=?,location=?,supplier=?,unit=?,reorder_level=?,photo_stored_name=?,photo_original_name=?,photo_content_type=?,updated_at=? WHERE id=?''', (name, code.strip(), category.strip(), description.strip(), location.strip(), supplier.strip(), unit, reorder_level, stored_name, original_name, content_type, now_iso(), material_id))
+    con.commit()
+    con.close()
+    if old_photo and old_photo != stored_name:
+        delete_material_photo(old_photo)
+
+
+def move_material_stock(material_id: int, amount: int, direction: str, note: str):
+    if amount < 1 or amount > 999999 or direction not in {'in', 'out'}:
+        raise HTTPException(400, 'Movimento non valido')
+    con = db()
+    item = con.execute('SELECT * FROM materials WHERE id=?', (material_id,)).fetchone()
+    if not item:
+        con.close()
+        raise HTTPException(404, 'Articolo non trovato')
+    delta = amount if direction == 'in' else -amount
+    new_quantity = item['quantity'] + delta
+    if new_quantity < 0:
+        con.close()
+        raise HTTPException(400, 'La quantità non può diventare negativa')
+    timestamp = now_iso()
+    con.execute('UPDATE materials SET quantity=?,updated_at=? WHERE id=?', (new_quantity, timestamp, material_id))
+    con.execute('INSERT INTO material_movements(material_id,movement_type,quantity,note,created_at) VALUES(?,?,?,?,?)', (material_id, direction, delta, note.strip(), timestamp))
+    con.commit()
+    con.close()
+
+
+def delete_material_record(material_id: int):
+    con = db()
+    item = con.execute('SELECT * FROM materials WHERE id=?', (material_id,)).fetchone()
+    if not item:
+        con.close()
+        raise HTTPException(404, 'Articolo non trovato')
+    con.execute('DELETE FROM material_movements WHERE material_id=?', (material_id,))
+    con.execute('DELETE FROM materials WHERE id=?', (material_id,))
+    con.commit()
+    con.close()
+    delete_material_photo(item['photo_stored_name'])
+
+
+def material_photo_response(material_id: int):
+    con = db()
+    item = con.execute('SELECT photo_stored_name,photo_original_name,photo_content_type FROM materials WHERE id=?', (material_id,)).fetchone()
+    con.close()
+    if not item or not item['photo_stored_name']:
+        raise HTTPException(404)
+    path = (UPLOAD_DIR / item['photo_stored_name']).resolve()
+    if path.parent != UPLOAD_DIR.resolve() or not path.is_file():
+        raise HTTPException(404)
+    filename = Path(item['photo_original_name'] or 'articolo').name.replace('"', '').replace('\r', '').replace('\n', '')
+    return FileResponse(path, media_type=item['photo_content_type'], filename=filename, content_disposition_type='inline', headers={'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=300'})
 
 
 init_db()
@@ -606,6 +845,7 @@ def admin_home():
     zone_rows = ''.join(f'<div class="zone-row"><div><b>{esc(z["name"])}</b><br><span class="muted">{"Attiva" if z["active"] else "Disattivata"}</span></div><a class="btn" href="zone/{z["id"]}">QR →</a></div>' for z in zones) or '<p class="muted">Nessuna zona</p>'
     ticket_rows = ''.join(f'<tr class="{ticket_priority_class(t)}"><td><a href="ticket/{t["id"]}"><b>{esc(t["ticket_code"])}</b></a></td><td>{esc(t["zone_name"])}</td><td>{esc(t["reporter_name"])}</td><td>{priority_dot(t)}<b>{esc(t["priority"] or "Normale")}</b></td><td><span class="pill {"done" if t["status"] == "Risolto" else "open"}">{esc(t["status"])}</span></td></tr>' for t in tickets) or '<tr><td colspan="5">Nessun ticket</td></tr>'
     return page('Dashboard', f'''
+    {stock_warning_dashboard()}
     <div class="grid">
       <div class="card span-3"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">Totale ticket</span><strong>{total}</strong></div></div></div>
       <div class="card span-3"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">Aperti</span><strong>{open_count}</strong></div></div></div>
@@ -673,6 +913,51 @@ def zones_page(message: str = '', created: int = 0):
     rows = ''.join(f'''<tr{' class="new-zone"' if z['id'] == created else ''}><td><b>{esc(z['name'])}</b></td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class="btn" href="zone/{z['id']}">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan="4">Nessuna zona</td></tr>'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
     return page('Zone / QR', f'''{notice}<style>.new-zone td{{background:#f1f8df}}</style><div class="grid"><div class="card span-8"><h2>Zone esistenti</h2><div class="table-wrap"><table><tr><th>Zona</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2><form method="post" action="zone"><label>Nome</label><input name="name" maxlength="80" required placeholder="Es. Cucina"><button>Crea zona e QR</button></form></div></div>''')
+
+
+@admin_app.get('/materials', response_class=HTMLResponse)
+def admin_materials(q: str = '', low: int = 0, message: str = ''):
+    return materials_page(False, 'it', q, low, message)
+
+
+@admin_app.post('/material')
+async def admin_material_create(name: str = Form(...), code: str = Form(''), category: str = Form(''), description: str = Form(''), location: str = Form(''), supplier: str = Form(''), unit: str = Form('pz'), quantity: int = Form(0), reorder_level: int = Form(3), photo: Optional[UploadFile] = File(None)):
+    material_id = await create_material_record(name, code, category, description, location, supplier, unit, quantity, reorder_level, photo)
+    return RedirectResponse(f'material/{material_id}', status_code=303)
+
+
+@admin_app.get('/material/{material_id}', response_class=HTMLResponse)
+def admin_material_detail(material_id: int, message: str = ''):
+    con = db()
+    item = con.execute('SELECT * FROM materials WHERE id=?', (material_id,)).fetchone()
+    movements = con.execute('SELECT * FROM material_movements WHERE material_id=? ORDER BY id DESC LIMIT 30', (material_id,)).fetchall()
+    con.close()
+    if not item:
+        raise HTTPException(404, 'Articolo non trovato')
+    return material_detail_page(item, movements, False, 'it', message)
+
+
+@admin_app.post('/material/{material_id}/update')
+async def admin_material_update(material_id: int, name: str = Form(...), code: str = Form(''), category: str = Form(''), description: str = Form(''), location: str = Form(''), supplier: str = Form(''), unit: str = Form('pz'), reorder_level: int = Form(3), remove_photo: str = Form(''), photo: Optional[UploadFile] = File(None)):
+    await update_material_record(material_id, name, code, category, description, location, supplier, unit, reorder_level, remove_photo, photo)
+    return RedirectResponse(f'../{material_id}?message=Articolo%20aggiornato', status_code=303)
+
+
+@admin_app.post('/material/{material_id}/movement')
+def admin_material_movement(material_id: int, amount: int = Form(...), direction: str = Form(...), note: str = Form('')):
+    move_material_stock(material_id, amount, direction, note)
+    return RedirectResponse(f'../{material_id}', status_code=303)
+
+
+@admin_app.post('/material/{material_id}/delete')
+def admin_material_delete(material_id: int):
+    delete_material_record(material_id)
+    return RedirectResponse('../../materials?message=Articolo%20eliminato', status_code=303)
+
+
+@admin_app.get('/material/{material_id}/photo')
+def admin_material_photo(material_id: int):
+    return material_photo_response(material_id)
 
 
 @admin_app.post('/pin')
@@ -745,7 +1030,7 @@ def settings_page(message: str = ''):
     manager_password_help = 'Lascia vuoto per conservare la password attuale.' if manager_configured else 'Crea una password di almeno 8 caratteri.'
     translation = options.get('translation_url') or 'Automatica integrata (Google con MyMemory di riserva)'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/devices/discover"><button type="submit">⌕ Rileva dispositivi da Home Assistant</button></form><div class="notice" style="margin-top:12px"><b>Diagnostica rilevamento:</b><br>{esc(discovery_status)}</div><details><summary><b>Aggiunta manuale</b></summary><form method="post" action="settings/device" style="margin-top:12px"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></details></div>{device_cards}<div class="card span-12"><h2>Accesso del titolare</h2><p class="muted">Portale separato da Home Assistant. Il titolare può gestire i ticket ma non può modificare PIN, QR, zone, telefoni o configurazioni tecniche.</p><p><b>Indirizzo del portale:</b><br><a href="{esc(manager_url)}" target="_blank">{esc(manager_url)}</a></p><form method="post" action="settings/manager"><label>Nome utente del titolare</label><input name="username" value="{esc(manager_username)}" minlength="3" maxlength="80" autocomplete="username" required placeholder="Es. titolare"><label>Nuova password</label><input type="password" name="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="{esc(manager_password_help)}"><p class="muted">{esc(manager_password_help)} La password viene protetta e non può essere visualizzata: se viene dimenticata, puoi sostituirla qui.</p><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {manager_checked} style="width:auto;margin:0"> Portale Titolare attivo</label><button type="submit">Salva accesso titolare</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
+    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/devices/discover"><button type="submit">⌕ Rileva dispositivi da Home Assistant</button></form><div class="notice" style="margin-top:12px"><b>Diagnostica rilevamento:</b><br>{esc(discovery_status)}</div><details><summary><b>Aggiunta manuale</b></summary><form method="post" action="settings/device" style="margin-top:12px"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></details></div>{device_cards}<div class="card span-12"><h2>Accesso del titolare</h2><p class="muted">Portale separato da Home Assistant. Il titolare può gestire ticket, zone, QR e magazzino materiali. Impostazioni, PIN, telefoni e configurazioni tecniche restano riservati all’amministratore.</p><p><b>Indirizzo del portale:</b><br><a href="{esc(manager_url)}" target="_blank">{esc(manager_url)}</a></p><form method="post" action="settings/manager"><label>Nome utente del titolare</label><input name="username" value="{esc(manager_username)}" minlength="3" maxlength="80" autocomplete="username" required placeholder="Es. titolare"><label>Nuova password</label><input type="password" name="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="{esc(manager_password_help)}"><p class="muted">{esc(manager_password_help)} La password viene protetta e non può essere visualizzata: se viene dimenticata, puoi sostituirla qui.</p><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {manager_checked} style="width:auto;margin:0"> Portale Titolare attivo</label><button type="submit">Salva accesso titolare</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
 
 
 @admin_app.get('/settings/group-qr')
@@ -1129,7 +1414,7 @@ def manager_home(request: Request, message: str = ''):
     zone_rows = ''.join(f'<div class="zone-row"><div><b>{esc(z["name"])}</b><br><span class="muted">{manager_text(lang, "active") if z["active"] else manager_text(lang, "inactive")}</span></div><a class="btn" href="/manager/zone/{z["id"]}">QR →</a></div>' for z in zones) or f'<p class="muted">{manager_text(lang, "no_zones")}</p>'
     ticket_rows = ''.join(f'<tr class="{ticket_priority_class(t)}"><td><a href="/manager/ticket/{t["id"]}"><b>{esc(t["ticket_code"])}</b></a></td><td>{esc(t["zone_name"])}</td><td>{esc(t["reporter_name"])}</td><td>{priority_dot(t)}<b>{esc(manager_priority_text(lang, t["priority"] or "Normale"))}</b></td><td><span class="pill {"done" if t["status"] == "Risolto" else "open"}">{esc(manager_status_text(lang, t["status"]))}</span></td></tr>' for t in tickets) or f'<tr><td colspan="5">{manager_text(lang, "no_tickets")}</td></tr>'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    body = f'''{notice}<div class="grid">
+    body = f'''{notice}{stock_warning_dashboard(lang, True)}<div class="grid">
       <div class="card span-3"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">{manager_text(lang, 'total')}</span><strong>{total}</strong></div></div></div>
       <div class="card span-3"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">{manager_text(lang, 'open')}</span><strong>{open_count}</strong></div></div></div>
       <div class="card span-3"><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">{manager_text(lang, 'working')}</span><strong>{work_count}</strong></div></div></div>
@@ -1177,6 +1462,67 @@ def manager_zones_page(request: Request, message: str = '', created: int = 0):
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
     body = f'''{notice}<style>.new-zone td{{background:#f1f8df}}</style><div class="grid"><div class="card span-8"><h2>{manager_text(lang, 'existing_zones')}</h2><div class="table-wrap"><table><tr><th>{manager_text(lang, 'zone')}</th><th>{manager_text(lang, 'status')}</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>{manager_text(lang, 'new_zone')}</h2><form method="post" action="/manager/zone"><label>{manager_text(lang, 'name')}</label><input name="name" maxlength="80" required placeholder="Es. Cucina"><button>{manager_text(lang, 'create_zone')}</button></form></div></div>'''
     return page(manager_text(lang, 'zones'), body, manager=True, lang=lang)
+
+
+@public_app.get('/manager/materials', response_class=HTMLResponse)
+def manager_materials(request: Request, q: str = '', low: int = 0, message: str = ''):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    return materials_page(True, public_language(request), q, low, message)
+
+
+@public_app.post('/manager/material')
+async def manager_material_create(request: Request, name: str = Form(...), code: str = Form(''), category: str = Form(''), description: str = Form(''), location: str = Form(''), supplier: str = Form(''), unit: str = Form('pz'), quantity: int = Form(0), reorder_level: int = Form(3), photo: Optional[UploadFile] = File(None)):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    material_id = await create_material_record(name, code, category, description, location, supplier, unit, quantity, reorder_level, photo)
+    return RedirectResponse(f'/manager/material/{material_id}', status_code=303)
+
+
+@public_app.get('/manager/material/{material_id}', response_class=HTMLResponse)
+def manager_material_detail(request: Request, material_id: int, message: str = ''):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    con = db()
+    item = con.execute('SELECT * FROM materials WHERE id=?', (material_id,)).fetchone()
+    movements = con.execute('SELECT * FROM material_movements WHERE material_id=? ORDER BY id DESC LIMIT 30', (material_id,)).fetchall()
+    con.close()
+    if not item:
+        raise HTTPException(404, 'Articolo non trovato')
+    return material_detail_page(item, movements, True, public_language(request), message)
+
+
+@public_app.post('/manager/material/{material_id}/update')
+async def manager_material_update(request: Request, material_id: int, name: str = Form(...), code: str = Form(''), category: str = Form(''), description: str = Form(''), location: str = Form(''), supplier: str = Form(''), unit: str = Form('pz'), reorder_level: int = Form(3), remove_photo: str = Form(''), photo: Optional[UploadFile] = File(None)):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    await update_material_record(material_id, name, code, category, description, location, supplier, unit, reorder_level, remove_photo, photo)
+    message = 'Artikel aktualisiert' if public_language(request) == 'de' else 'Articolo aggiornato'
+    return RedirectResponse(f'/manager/material/{material_id}?message={urllib.parse.quote(message)}', status_code=303)
+
+
+@public_app.post('/manager/material/{material_id}/movement')
+def manager_material_movement(request: Request, material_id: int, amount: int = Form(...), direction: str = Form(...), note: str = Form('')):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    move_material_stock(material_id, amount, direction, note)
+    return RedirectResponse(f'/manager/material/{material_id}', status_code=303)
+
+
+@public_app.post('/manager/material/{material_id}/delete')
+def manager_material_delete(request: Request, material_id: int):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    delete_material_record(material_id)
+    message = 'Artikel gelöscht' if public_language(request) == 'de' else 'Articolo eliminato'
+    return RedirectResponse('/manager/materials?message=' + urllib.parse.quote(message), status_code=303)
+
+
+@public_app.get('/manager/material/{material_id}/photo')
+def manager_material_photo(request: Request, material_id: int):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    return material_photo_response(material_id)
 
 
 @public_app.post('/manager/zone')
