@@ -2,7 +2,7 @@
 
 Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ristorante e delle camere del personale.
 
-## Funzioni della versione 1.4.0
+## Funzioni della versione 1.5.0
 
 - Interfaccia amministrativa dentro Home Assistant tramite Ingress.
 - Creazione zone personalizzate.
@@ -16,6 +16,7 @@ Add-on Home Assistant per la gestione delle segnalazioni di manutenzione del ris
 - Ticket con codice progressivo e stato iniziale `Nuovo`.
 - Dashboard con conteggi e ticket recenti.
 - Ricerca e filtro dei ticket, con esportazione CSV.
+- Creazione diretta di un nuovo ticket dall'add-on o dal Portale Titolare, scegliendo zona, categoria, priorità, descrizione e fino a 5 foto, senza scansione del QR.
 - Gestione stato, priorità, note interne e traduzione italiana.
 - Traduzione automatica opzionale tramite endpoint compatibile LibreTranslate.
 - Visualizzazione protetta delle fotografie nell'interfaccia Ingress.
