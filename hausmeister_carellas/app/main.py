@@ -28,7 +28,8 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.4.0'
+ALLOWED_CATEGORIES = ('Elettrico', 'Idraulico', 'Climatizzazione', 'Porta/Finestra', 'Attrezzatura cucina', 'Altro')
+APP_VERSION = '1.5.0'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -456,6 +457,10 @@ MANAGER_TEXT = {
         'current_stock': 'Scorta attuale', 'remove_photo': 'Elimina la foto attuale',
         'stock_history_help': 'Usa carico/scarico per mantenere lo storico.',
         'delete_material_confirm': 'Eliminare definitivamente questo articolo e la sua foto?',
+        'new_ticket': 'Nuovo ticket', 'create_ticket': 'Crea ticket', 'select_zone': 'Seleziona zona',
+        'reporter_name': 'Nome e cognome', 'fault_type': 'Tipo di guasto',
+        'select_category': 'Seleziona la categoria', 'ticket_photos': 'Foto (opzionali, massimo 5)',
+        'ticket_created': 'Ticket creato correttamente.', 'no_active_zones': 'Non ci sono zone attive. Attiva o crea prima una zona.',
     },
     'de': {
         'portal': 'Inhaberportal', 'login': 'Anmeldung für den Inhaber', 'username': 'Benutzername',
@@ -490,6 +495,10 @@ MANAGER_TEXT = {
         'current_stock': 'Aktueller Bestand', 'remove_photo': 'Aktuelles Foto löschen',
         'stock_history_help': 'Einlagern/Entnehmen verwenden, damit der Verlauf erhalten bleibt.',
         'delete_material_confirm': 'Diesen Artikel und sein Foto endgültig löschen?',
+        'new_ticket': 'Neues Ticket', 'create_ticket': 'Ticket erstellen', 'select_zone': 'Bereich auswählen',
+        'reporter_name': 'Vor- und Nachname', 'fault_type': 'Art des Defekts',
+        'select_category': 'Kategorie auswählen', 'ticket_photos': 'Fotos (optional, maximal 5)',
+        'ticket_created': 'Ticket erfolgreich erstellt.', 'no_active_zones': 'Es gibt keine aktiven Bereiche. Aktivieren oder erstellen Sie zuerst einen Bereich.',
     },
 }
 
@@ -613,6 +622,67 @@ def session_zone(request: Request, token: str):
         return data.get('zone') == token or data.get('group') == group_token()
     except BadSignature:
         return False
+
+
+def direct_ticket_form(manager: bool = False, lang: str = 'it'):
+    con = db()
+    zones = con.execute('SELECT id,name FROM zones WHERE active=1 ORDER BY name').fetchall()
+    con.close()
+    if not zones:
+        zones_url = '/manager/zones' if manager else 'zones'
+        link_extra = '' if manager else ' onclick="return adminGo(\'zones\')"'
+        body = f'''<div class="card"><div class="notice warning">{manager_text(lang, 'no_active_zones')}</div><a class="btn" href="{zones_url}"{link_extra}>{manager_text(lang, 'zones')}</a></div>'''
+        return page(manager_text(lang, 'new_ticket'), body, manager=manager, lang=lang, back_url='/manager/tickets' if manager else '')
+    zone_options = '<option value="" selected disabled>' + manager_text(lang, 'select_zone') + '</option>' + ''.join(
+        f'<option value="{zone["id"]}">{esc(zone["name"])}</option>' for zone in zones
+    )
+    category_options = '<option value="" selected disabled>' + manager_text(lang, 'select_category') + '</option>' + ''.join(
+        f'<option value="{esc(category)}">{esc(manager_category_text(lang, category))}</option>' for category in ALLOWED_CATEGORIES
+    )
+    priority_options = ''.join(
+        f'<option value="{esc(priority)}" {"selected" if priority == "Normale" else ""}>{esc(manager_priority_text(lang, priority))}</option>' for priority in PRIORITIES
+    )
+    action = '/manager/ticket/new' if manager else 'new'
+    body = f'''<div class="card" style="max-width:850px"><form method="post" action="{action}" enctype="multipart/form-data"><div class="material-form-grid"><div><label>{manager_text(lang, 'zone')} *</label><select name="zone_id" required>{zone_options}</select></div><div><label>{manager_text(lang, 'reporter_name')} *</label><input name="reporter_name" maxlength="120" autocomplete="name" required></div><div><label>{manager_text(lang, 'fault_type')} *</label><select name="category" required>{category_options}</select></div><div><label>{manager_text(lang, 'priority')} *</label><select name="priority" required>{priority_options}</select></div><div class="full"><label>{manager_text(lang, 'description')} *</label><textarea name="description" maxlength="4000" required></textarea></div><div class="full"><label>{manager_text(lang, 'ticket_photos')}</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple><span class="muted">JPG, PNG, WEBP, HEIC · max 8 MB</span></div></div><button type="submit">＋ {manager_text(lang, 'create_ticket')}</button></form></div>'''
+    return page(manager_text(lang, 'new_ticket'), body, manager=manager, lang=lang, back_url='/manager/tickets' if manager else '')
+
+
+async def create_direct_ticket(zone_id: int, reporter_name: str, category: str, priority: str, description: str, photos: list[UploadFile], lang: str = 'it'):
+    reporter_name = reporter_name.strip()
+    description = description.strip()
+    if not reporter_name or not description or len(reporter_name) > 120 or len(description) > 4000:
+        raise HTTPException(400, 'Name und Beschreibung sind erforderlich' if lang == 'de' else 'Nome e descrizione sono obbligatori')
+    if category not in ALLOWED_CATEGORIES or priority not in PRIORITIES:
+        raise HTTPException(400, 'Ungültige Kategorie oder Priorität' if lang == 'de' else 'Categoria o priorità non valida')
+    con = db()
+    zone = con.execute('SELECT id,name FROM zones WHERE id=? AND active=1', (zone_id,)).fetchone()
+    if not zone:
+        con.close()
+        raise HTTPException(404, 'Aktiver Bereich nicht gefunden' if lang == 'de' else 'Zona attiva non trovata')
+    description_it, status_it = translate_text(description, 'it')
+    description_de, status_de = translate_text(description, 'de')
+    translation_status = 'completed' if status_it == 'completed' and status_de == 'completed' else ('failed' if 'failed' in (status_it, status_de) else 'pending')
+    timestamp = now_iso()
+    cur = con.execute('''INSERT INTO tickets(zone_id,reporter_name,category,priority,description_original,description_it,description_de,translation_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)''', (zone_id, reporter_name, category, priority, description, description_it, description_de, translation_status, timestamp, timestamp))
+    ticket_id = cur.lastrowid
+    code = f'{datetime.now().year}-{ticket_id:05d}'
+    con.execute('UPDATE tickets SET ticket_code=? WHERE id=?', (code, ticket_id))
+    for upload in photos[:5]:
+        if not upload.filename or upload.content_type not in ALLOWED_TYPES:
+            continue
+        content = await upload.read(MAX_UPLOAD_BYTES + 1)
+        if len(content) > MAX_UPLOAD_BYTES:
+            continue
+        suffix = Path(upload.filename).suffix.lower()[:8]
+        stored = hashlib.sha256((secrets.token_hex(16) + upload.filename).encode()).hexdigest() + suffix
+        (UPLOAD_DIR / stored).write_bytes(content)
+        con.execute('INSERT INTO ticket_files(ticket_id,stored_name,original_name,content_type,created_at) VALUES(?,?,?,?,?)', (ticket_id, stored, Path(upload.filename).name, upload.content_type, timestamp))
+    con.commit()
+    con.close()
+    title = f'{"URGENTE · " if priority == "Urgente" else ""}Ticket {code}'
+    message = f'Zona {zone["name"]} · {category} · Priorità {priority}\n{description[:250]}'
+    notify_home_assistant(message, title, ticket_notification_url(ticket_id))
+    return ticket_id, code
 
 
 def material_url(manager: bool, suffix: str = ''):
@@ -874,7 +944,7 @@ def tickets_page(q: str = '', status: str = '', message: str = ''):
     rows = ''.join(f'''<tr class="{ticket_priority_class(t)}"><td><a href="ticket/{t['id']}"><b>{esc(t['ticket_code'])}</b></a></td><td>{esc(t['zone_name'])}</td><td>{esc(t['reporter_name'])}</td><td>{esc(t['category'])}</td><td>{priority_dot(t)}<b>{esc(t['priority'] or 'Normale')}</b></td><td><span class="pill {'done' if t['status'] == 'Risolto' else 'open'}">{esc(t['status'])}</span></td></tr>''' for t in tickets) or '<tr><td colspan="6">Nessun ticket trovato</td></tr>'
     options = '<option value="">Tutti gli stati</option>' + ''.join(f'<option value="{esc(s)}" {"selected" if status == s else ""}>{esc(s)}</option>' for s in STATUSES)
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    return page('Ticket', f'''{notice}<div class="card"><form class="filters" method="get"><div><label>Cerca</label><input name="q" value="{esc(q)}" placeholder="Codice, zona, nome o descrizione"></div><div><label>Stato</label><select name="status">{options}</select></div><button>Cerca</button></form><div class="actions" style="margin:14px 0"><a class="btn" href="tickets/export.csv">Esporta CSV</a></div><div class="table-wrap"><table><tr><th>ID</th><th>Zona</th><th>Segnalato da</th><th>Categoria</th><th>Priorità</th><th>Stato</th></tr>{rows}</table></div></div>''')
+    return page('Ticket', f'''{notice}<div class="card"><form class="filters" method="get"><div><label>Cerca</label><input name="q" value="{esc(q)}" placeholder="Codice, zona, nome o descrizione"></div><div><label>Stato</label><select name="status">{options}</select></div><button>Cerca</button></form><div class="actions" style="margin:14px 0"><a class="btn" href="ticket/new">＋ Nuovo ticket</a><a class="btn" href="tickets/export.csv">Esporta CSV</a></div><div class="table-wrap"><table><tr><th>ID</th><th>Zona</th><th>Segnalato da</th><th>Categoria</th><th>Priorità</th><th>Stato</th></tr>{rows}</table></div></div>''')
 
 
 @admin_app.get('/tickets/export.csv')
@@ -1217,6 +1287,17 @@ def zone_qr(zone_id: int, download: int = 0):
     return StreamingResponse(buf, media_type='image/png', headers={'Content-Disposition': f'{disposition}; filename="zona-{zone_id}.png"'})
 
 
+@admin_app.get('/ticket/new', response_class=HTMLResponse)
+def admin_new_ticket_page():
+    return direct_ticket_form()
+
+
+@admin_app.post('/ticket/new')
+async def admin_new_ticket(zone_id: int = Form(...), reporter_name: str = Form(...), category: str = Form(...), priority: str = Form('Normale'), description: str = Form(...), photos: list[UploadFile] = File(default=[])):
+    ticket_id, _ = await create_direct_ticket(zone_id, reporter_name, category, priority, description, photos)
+    return RedirectResponse(str(ticket_id), status_code=303)
+
+
 @admin_app.get('/ticket/{ticket_id}', response_class=HTMLResponse)
 def ticket_detail(ticket_id: int):
     con = db()
@@ -1446,7 +1527,7 @@ def manager_tickets_page(request: Request, q: str = '', status: str = '', messag
     rows = ''.join(f'''<tr class="{ticket_priority_class(t)}"><td><a href="/manager/ticket/{t['id']}"><b>{esc(t['ticket_code'])}</b></a></td><td>{esc(t['zone_name'])}</td><td>{esc(t['reporter_name'])}</td><td>{esc(manager_category_text(lang, t['category']))}</td><td>{priority_dot(t)}<b>{esc(manager_priority_text(lang, t['priority'] or 'Normale'))}</b></td><td><span class="pill {'done' if t['status'] == 'Risolto' else 'open'}">{esc(manager_status_text(lang, t['status']))}</span></td></tr>''' for t in tickets) or f'<tr><td colspan="6">{manager_text(lang, "no_tickets")}</td></tr>'
     options = f'<option value="">{manager_text(lang, "all_statuses")}</option>' + ''.join(f'<option value="{esc(s)}" {"selected" if status == s else ""}>{esc(manager_status_text(lang, s))}</option>' for s in STATUSES)
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    body = f'''{notice}<div class="card"><form class="filters" method="get"><div><label>{manager_text(lang, 'search')}</label><input name="q" value="{esc(q)}" placeholder="{manager_text(lang, 'search_hint')}"></div><div><label>{manager_text(lang, 'status')}</label><select name="status">{options}</select></div><button>{manager_text(lang, 'search')}</button></form><div class="table-wrap" style="margin-top:14px"><table><tr><th>ID</th><th>{manager_text(lang, 'zone')}</th><th>{manager_text(lang, 'reporter')}</th><th>{manager_text(lang, 'category')}</th><th>{manager_text(lang, 'priority')}</th><th>{manager_text(lang, 'status')}</th></tr>{rows}</table></div></div>'''
+    body = f'''{notice}<div class="card"><form class="filters" method="get"><div><label>{manager_text(lang, 'search')}</label><input name="q" value="{esc(q)}" placeholder="{manager_text(lang, 'search_hint')}"></div><div><label>{manager_text(lang, 'status')}</label><select name="status">{options}</select></div><button>{manager_text(lang, 'search')}</button></form><div class="actions" style="margin:14px 0"><a class="btn" href="/manager/ticket/new">＋ {manager_text(lang, 'new_ticket')}</a></div><div class="table-wrap"><table><tr><th>ID</th><th>{manager_text(lang, 'zone')}</th><th>{manager_text(lang, 'reporter')}</th><th>{manager_text(lang, 'category')}</th><th>{manager_text(lang, 'priority')}</th><th>{manager_text(lang, 'status')}</th></tr>{rows}</table></div></div>'''
     return page(manager_text(lang, 'tickets'), body, manager=True, lang=lang)
 
 
@@ -1638,6 +1719,21 @@ def manager_zone_qr(request: Request, zone_id: int, download: int = 0):
     buf.seek(0)
     disposition = 'attachment' if download else 'inline'
     return StreamingResponse(buf, media_type='image/png', headers={'Content-Disposition': f'{disposition}; filename="zona-{zone_id}.png"'})
+
+
+@public_app.get('/manager/ticket/new', response_class=HTMLResponse)
+def manager_new_ticket_page(request: Request):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    return direct_ticket_form(True, public_language(request))
+
+
+@public_app.post('/manager/ticket/new')
+async def manager_new_ticket(request: Request, zone_id: int = Form(...), reporter_name: str = Form(...), category: str = Form(...), priority: str = Form('Normale'), description: str = Form(...), photos: list[UploadFile] = File(default=[])):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    ticket_id, _ = await create_direct_ticket(zone_id, reporter_name, category, priority, description, photos, public_language(request))
+    return RedirectResponse(f'/manager/ticket/{ticket_id}', status_code=303)
 
 
 @public_app.get('/manager/ticket/{ticket_id}', response_class=HTMLResponse)
@@ -1852,8 +1948,7 @@ async def submit_ticket(request: Request, token: str, reporter_name: str = Form(
     description = description.strip()
     if not reporter_name or not description or len(reporter_name) > 120 or len(description) > 4000:
         raise HTTPException(400, 'Name und Beschreibung sind erforderlich' if lang == 'de' else 'Nome e descrizione sono obbligatori')
-    allowed_categories = {'Elettrico', 'Idraulico', 'Climatizzazione', 'Porta/Finestra', 'Attrezzatura cucina', 'Altro'}
-    if category not in allowed_categories or priority not in PRIORITIES:
+    if category not in ALLOWED_CATEGORIES or priority not in PRIORITIES:
         raise HTTPException(400, 'Ungültige Kategorie oder Priorität' if lang == 'de' else 'Categoria o priorità non valida')
     con = db()
     zone = con.execute('SELECT * FROM zones WHERE token=? AND active=1', (token,)).fetchone()
