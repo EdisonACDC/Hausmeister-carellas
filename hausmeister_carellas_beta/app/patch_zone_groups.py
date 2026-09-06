@@ -18,6 +18,31 @@ if "PRAGMA table_info(zones)" not in text:
         raise SystemExit('DB migration marker not found')
     text = text.replace(marker, addition + marker, 1)
 
+# Dashboard: carica anche il gruppo e mostra i gruppi con le zone contenute.
+old_dashboard_query = "    zones = con.execute('SELECT * FROM zones ORDER BY name').fetchall()"
+new_dashboard_query = "    zones = con.execute(\"SELECT z.*, g.name AS group_name FROM zones z LEFT JOIN zone_groups g ON g.id=z.group_id ORDER BY COALESCE(g.name, 'ZZZZZZ'), z.name\").fetchall()"
+if old_dashboard_query in text:
+    text = text.replace(old_dashboard_query, new_dashboard_query, 1)
+
+old_zone_rows = "    zone_rows = ''.join(f'<div class=\"zone-row\"><div><b>{esc(z[\"name\"])}</b><br><span class=\"muted\">{\"Attiva\" if z[\"active\"] else \"Disattivata\"}</span></div><a class=\"btn\" href=\"zone/{z[\"id\"]}\">QR →</a></div>' for z in zones) or '<p class=\"muted\">Nessuna zona</p>'"
+new_zone_rows = '''    grouped_zones = {}
+    for z in zones:
+        group_name = z['group_name'] or 'Senza gruppo'
+        grouped_zones.setdefault(group_name, []).append(z)
+    zone_rows = ''
+    for group_name, group_zones in grouped_zones.items():
+        zone_items = ''.join(
+            f'<div style="padding:8px 0;border-top:1px solid var(--line)"><b>{esc(z["name"])}</b> <span class="muted">· {"Attiva" if z["active"] else "Disattivata"}</span> <a class="btn" style="float:right;padding:5px 9px" href="zone/{z["id"]}">QR →</a><div style="clear:both"></div></div>'
+            for z in group_zones
+        )
+        zone_rows += f'<div class="zone-row" style="display:block"><div style="margin-bottom:6px"><b>📁 {esc(group_name)}</b><br><span class="muted">{len(group_zones)} zone</span></div>{zone_items}</div>'
+    if not zone_rows:
+        zone_rows = '<p class="muted">Nessuna zona</p>' '''
+if old_zone_rows in text:
+    text = text.replace(old_zone_rows, new_zone_rows.rstrip(), 1)
+elif 'grouped_zones = {}' not in text:
+    raise SystemExit('Dashboard zone list marker not found')
+
 # Pulsante nella pagina Zone / QR
 old = '<div class="card span-8"><h2>Zone esistenti</h2>'
 new = '<div class="card span-8"><div class="actions" style="justify-content:space-between"><h2>Zone esistenti</h2><a class="btn" href="zone-groups">📁 Gestisci gruppi</a></div>'
