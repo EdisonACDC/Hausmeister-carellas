@@ -18,7 +18,7 @@ if "PRAGMA table_info(zones)" not in text:
         raise SystemExit('DB migration marker not found')
     text = text.replace(marker, addition + marker, 1)
 
-# Dashboard: carica anche il gruppo e mostra i gruppi con le zone contenute.
+# Dashboard: carica anche il gruppo e mostra gruppi a tendina.
 old_dashboard_query = "    zones = con.execute('SELECT * FROM zones ORDER BY name').fetchall()"
 new_dashboard_query = "    zones = con.execute(\"SELECT z.*, g.name AS group_name FROM zones z LEFT JOIN zone_groups g ON g.id=z.group_id ORDER BY COALESCE(g.name, 'ZZZZZZ'), z.name\").fetchall()"
 if old_dashboard_query in text:
@@ -32,10 +32,10 @@ new_zone_rows = '''    grouped_zones = {}
     zone_rows = ''
     for group_name, group_zones in grouped_zones.items():
         zone_items = ''.join(
-            f'<div style="padding:8px 0;border-top:1px solid var(--line)"><b>{esc(z["name"])}</b> <span class="muted">· {"Attiva" if z["active"] else "Disattivata"}</span> <a class="btn" style="float:right;padding:5px 9px" href="zone/{z["id"]}">QR →</a><div style="clear:both"></div></div>'
+            f'<div style="padding:10px 4px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:8px"><div><b>{esc(z["name"])}</b><br><span class="muted">{"Attiva" if z["active"] else "Disattivata"}</span></div><a class="btn" style="padding:5px 9px" href="zone/{z["id"]}">QR →</a></div>'
             for z in group_zones
         )
-        zone_rows += f'<div class="zone-row" style="display:block"><div style="margin-bottom:6px"><b>📁 {esc(group_name)}</b><br><span class="muted">{len(group_zones)} zone</span></div>{zone_items}</div>'
+        zone_rows += f'<details style="border:1px solid var(--line);border-radius:12px;margin-bottom:9px;background:var(--card)"><summary style="cursor:pointer;padding:13px 14px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px"><span><b>📁 {esc(group_name)}</b><br><span class="muted">{len(group_zones)} zone</span></span><span style="font-size:18px">▾</span></summary><div style="padding:0 12px 8px">{zone_items}</div></details>'
     if not zone_rows:
         zone_rows = '<p class="muted">Nessuna zona</p>' '''
 if old_zone_rows in text:
