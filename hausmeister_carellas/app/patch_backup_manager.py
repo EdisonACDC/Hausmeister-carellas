@@ -34,8 +34,10 @@ def create_managed_backup():
                     if item.is_file():
                         archive.write(item, f'uploads/{item.name}')
     finally:
-        try: snapshot.unlink()
-        except OSError: pass
+        try:
+            snapshot.unlink()
+        except OSError:
+            pass
     return target
 
 
@@ -50,7 +52,6 @@ def managed_backup_path(filename):
     text = text.replace(helpers_marker, helpers + helpers_marker, 1)
 
 start_marker = "@admin_app.get('/settings/backup')\ndef backup_data():\n"
-alt_start_marker = "@admin_app.get('/settings/backup')\ndef backup_data():\n"
 end_marker = "\n\n@admin_app.get('/zone/{zone_id}', response_class=HTMLResponse)"
 if start_marker not in text or end_marker not in text:
     raise SystemExit('backup route markers not found')
@@ -68,7 +69,7 @@ def backup_page(message: str = ''):
     if not rows:
         rows = '<p class="muted">Nessun backup creato.</p>'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    body = f'''{notice}<div class="grid"><div class="card span-12"><h2>Backup Hausmeister</h2><p>Prima crea il backup. Il file rimane salvato nell’add-on e può essere scaricato successivamente.</p><form method="post" action="backup/create"><button type="submit">💾 Crea backup adesso</button></form></div><div class="card span-12"><h2>Backup disponibili</h2>{rows}</div></div>'''
+    body = f"""{notice}<div class="grid"><div class="card span-12"><h2>Backup Hausmeister</h2><p>Prima crea il backup. Il file rimane salvato nell’add-on e può essere scaricato successivamente.</p><form method="post" action="backup/create"><button type="submit">💾 Crea backup adesso</button></form></div><div class="card span-12"><h2>Backup disponibili</h2>{rows}</div></div>"""
     return page('Backup', body, back_url='../settings')
 
 
