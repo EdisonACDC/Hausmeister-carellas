@@ -30,7 +30,16 @@ text = text.replace(
 
 # Dashboard: mostra prima i gruppi invece di tutte le zone.
 pattern = re.compile(r"^    zone_rows = ''\.join\(.*?\) or '<p class=\\\"muted\\\">Nessuna zona</p>'$", re.M)
-replacement = '''    group_map = {}\n    for z in zones:\n        key = z['group_id'] or 0\n        if key not in group_map:\n            group_map[key] = {'name': z['group_name'] or 'Senza gruppo', 'zones': []}\n        group_map[key]['zones'].append(z)\n    zone_rows = ''.join(\n        f'<a class="zone-row" style="text-decoration:none" href="zone-group/{group_id}"><div><b>📁 {esc(data["name"])}</b><br><span class="muted">{len(data["zones"])} zone</span></div><span class="btn">Apri →</span></a>'\n        for group_id, data in group_map.items()\n    ) or '<p class="muted">Nessuna zona</p>' '''
+replacement = '''    group_map = {}
+    for z in zones:
+        key = z['group_id'] or 0
+        if key not in group_map:
+            group_map[key] = {'name': z['group_name'] or 'Senza gruppo', 'zones': []}
+        group_map[key]['zones'].append(z)
+    zone_rows = ''.join(
+        f'<a class="zone-row" style="text-decoration:none" href="zone-group/{group_id}"><div><b>📁 {esc(data["name"])}</b><br><span class="muted">{len(data["zones"])} zone</span></div><span class="btn">Apri →</span></a>'
+        for group_id, data in group_map.items()
+    ) or '<p class="muted">Nessuna zona</p>' '''
 if pattern.search(text):
     text = pattern.sub(replacement.rstrip(), text, count=1)
 elif "group_map = {}" not in text:
@@ -52,7 +61,7 @@ text = text.replace(old_page, new_page, 1)
 # Rotte per gruppi e pagina di navigazione del singolo gruppo.
 route_marker = "@admin_app.get('/materials', response_class=HTMLResponse)"
 if "@admin_app.get('/zone-groups'" not in text:
-    routes = r'''
+    routes = r"""
 @admin_app.get('/zone-groups', response_class=HTMLResponse)
 def zone_groups_page(message: str = ''):
     con = db()
@@ -146,7 +155,7 @@ def zone_group_delete(group_id: int):
     return RedirectResponse('../../../zone-groups?message=' + urllib.parse.quote('Gruppo eliminato. Le zone sono rimaste disponibili.'), status_code=303)
 
 
-'''
+"""
     if route_marker not in text:
         raise SystemExit('Route insertion marker not found')
     text = text.replace(route_marker, routes + route_marker, 1)
