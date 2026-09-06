@@ -18,7 +18,7 @@ if "PRAGMA table_info(zones)" not in text:
         raise SystemExit('DB migration marker not found')
     text = text.replace(marker, addition + marker, 1)
 
-# Dashboard: carica anche il gruppo e mostra gruppi a tendina.
+# Dashboard: gruppi moderni a tendina, senza icona cartella.
 old_dashboard_query = "    zones = con.execute('SELECT * FROM zones ORDER BY name').fetchall()"
 new_dashboard_query = "    zones = con.execute(\"SELECT z.*, g.name AS group_name FROM zones z LEFT JOIN zone_groups g ON g.id=z.group_id ORDER BY COALESCE(g.name, 'ZZZZZZ'), z.name\").fetchall()"
 if old_dashboard_query in text:
@@ -31,11 +31,12 @@ new_zone_rows = '''    grouped_zones = {}
         grouped_zones.setdefault(group_name, []).append(z)
     zone_rows = ''
     for group_name, group_zones in grouped_zones.items():
+        initial = esc((group_name.strip()[:1] or 'Z').upper())
         zone_items = ''.join(
-            f'<div style="padding:10px 4px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:8px"><div><b>{esc(z["name"])}</b><br><span class="muted">{"Attiva" if z["active"] else "Disattivata"}</span></div><a class="btn" style="padding:5px 9px" href="zone/{z["id"]}">QR →</a></div>'
+            f'<a href="zone/{z["id"]}" style="text-decoration:none;color:inherit;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin:8px 10px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025)"><div style="display:flex;align-items:center;gap:11px"><span style="width:10px;height:10px;border-radius:50%;background:{"#39d98a" if z["active"] else "#77808f"};box-shadow:0 0 0 4px rgba(57,217,138,.08)"></span><div><b style="font-size:15px">{esc(z["name"])}</b><br><span class="muted">{"Attiva" if z["active"] else "Disattivata"}</span></div></div><span style="font-size:22px;opacity:.65">›</span></a>'
             for z in group_zones
         )
-        zone_rows += f'<details style="border:1px solid var(--line);border-radius:12px;margin-bottom:9px;background:var(--card)"><summary style="cursor:pointer;padding:13px 14px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px"><span><b>📁 {esc(group_name)}</b><br><span class="muted">{len(group_zones)} zone</span></span><span style="font-size:18px">▾</span></summary><div style="padding:0 12px 8px">{zone_items}</div></details>'
+        zone_rows += f'<details style="overflow:hidden;border:1px solid var(--line);border-radius:18px;margin-bottom:12px;background:linear-gradient(135deg,rgba(25,105,190,.16),rgba(255,255,255,.025));box-shadow:0 8px 24px rgba(0,0,0,.12)"><summary style="cursor:pointer;padding:15px 16px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px"><span style="display:flex;align-items:center;gap:13px"><span style="width:44px;height:44px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;background:linear-gradient(145deg,#2388ee,#1559a7);color:white;box-shadow:0 5px 14px rgba(20,100,200,.28)">{initial}</span><span><b style="font-size:17px">{esc(group_name)}</b><br><span class="muted">{len(group_zones)} zone</span></span></span><span style="display:flex;align-items:center;gap:10px"><span style="padding:5px 9px;border-radius:999px;background:rgba(255,255,255,.08);font-size:12px">{len(group_zones)}</span><span style="font-size:20px">⌄</span></span></summary><div style="padding:0 2px 8px">{zone_items}</div></details>'
     if not zone_rows:
         zone_rows = '<p class="muted">Nessuna zona</p>' '''
 if old_zone_rows in text:
@@ -45,7 +46,7 @@ elif 'grouped_zones = {}' not in text:
 
 # Pulsante nella pagina Zone / QR
 old = '<div class="card span-8"><h2>Zone esistenti</h2>'
-new = '<div class="card span-8"><div class="actions" style="justify-content:space-between"><h2>Zone esistenti</h2><a class="btn" href="zone-groups">📁 Gestisci gruppi</a></div>'
+new = '<div class="card span-8"><div class="actions" style="justify-content:space-between"><h2>Zone esistenti</h2><a class="btn" href="zone-groups">Gestisci gruppi</a></div>'
 if old in text:
     text = text.replace(old, new, 1)
 elif 'href="zone-groups"' not in text:
@@ -61,13 +62,13 @@ def zone_groups_page(message: str = ''):
     groups = con.execute('SELECT g.*, COUNT(z.id) AS zone_count FROM zone_groups g LEFT JOIN zones z ON z.group_id=g.id GROUP BY g.id ORDER BY g.name').fetchall()
     ungrouped = con.execute('SELECT COUNT(*) AS n FROM zones WHERE group_id IS NULL').fetchone()['n']
     con.close()
-    rows = ''.join(f'<div class="zone-row"><div><b>📁 {esc(g["name"])}</b><br><span class="muted">{g["zone_count"]} zone</span></div><div class="actions"><a class="btn" href="zone-group/{g["id"]}/edit">Assegna zone</a><form method="post" action="zone-group/{g["id"]}/delete" onsubmit="return confirm(\'Eliminare il gruppo? Le zone resteranno disponibili.\')"><button class="danger" type="submit">Elimina</button></form></div></div>' for g in groups)
+    rows = ''.join(f'<div class="zone-row"><div><b>{esc(g["name"])}</b><br><span class="muted">{g["zone_count"]} zone</span></div><div class="actions"><a class="btn" href="zone-group/{g["id"]}/edit">Assegna zone</a><form method="post" action="zone-group/{g["id"]}/delete" onsubmit="return confirm(\'Eliminare il gruppo? Le zone resteranno disponibili.\')"><button class="danger" type="submit">Elimina</button></form></div></div>' for g in groups)
     if ungrouped:
         rows += f'<div class="notice">Zone senza gruppo: <b>{ungrouped}</b></div>'
     if not rows:
         rows = '<p class="muted">Nessun gruppo creato.</p>'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    body = f'''{notice}<div class="grid"><div class="card span-8"><h2>Gruppi di zone</h2>{rows}</div><div class="card span-4"><h2>Nuovo gruppo</h2><form method="post" action="zone-groups/create"><label>Nome gruppo</label><input name="name" maxlength="80" required placeholder="Es. Ristorante"><button type="submit">📁 Crea gruppo</button></form></div></div>'''
+    body = f'''{notice}<div class="grid"><div class="card span-8"><h2>Gruppi di zone</h2>{rows}</div><div class="card span-4"><h2>Nuovo gruppo</h2><form method="post" action="zone-groups/create"><label>Nome gruppo</label><input name="name" maxlength="80" required placeholder="Es. Ristorante"><button type="submit">Crea gruppo</button></form></div></div>'''
     return page('Gruppi di zone', body, back_url='zones')
 
 
@@ -102,7 +103,7 @@ def zone_group_edit(group_id: int):
         checks += f'<label style="display:flex;gap:10px;align-items:center;padding:12px;border-bottom:1px solid var(--line)"><input style="width:auto" type="checkbox" name="zone_ids" value="{z["id"]}" {checked}><span><b>{esc(z["name"])}</b><span class="muted">{current}</span></span></label>'
     if not checks:
         checks = '<p class="muted">Non ci sono ancora zone.</p>'
-    body = f'''<div class="card"><h2>📁 {esc(group['name'])}</h2><p class="muted">Seleziona le zone che vuoi inserire in questo gruppo. Una zona può appartenere a un solo gruppo.</p><form method="post" action="edit/save">{checks}<button type="submit" style="margin-top:16px">Salva assegnazione</button></form></div>'''
+    body = f'''<div class="card"><h2>{esc(group['name'])}</h2><p class="muted">Seleziona le zone che vuoi inserire in questo gruppo. Una zona può appartenere a un solo gruppo.</p><form method="post" action="edit/save">{checks}<button type="submit" style="margin-top:16px">Salva assegnazione</button></form></div>'''
     return page(f'Gruppo · {group["name"]}', body, back_url='../../zone-groups')
 
 
