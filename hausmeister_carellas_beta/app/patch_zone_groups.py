@@ -21,15 +21,11 @@ if "PRAGMA table_info(zones)" not in text:
         raise SystemExit('DB migration marker not found')
     text = text.replace(marker, addition + marker, 1)
 
-# Dashboard: carica il nome del gruppo per ogni zona.
 old_dashboard_query = "    zones = con.execute('SELECT * FROM zones ORDER BY name').fetchall()\n"
-new_dashboard_query = "    zones = con.execute('SELECT z.*, g.name AS group_name FROM zones z LEFT JOIN zone_groups g ON g.id=z.group_id ORDER BY COALESCE(g.name, \'ZZZZZZ\'), z.name').fetchall()\n"
+new_dashboard_query = "    zones = con.execute(\"SELECT z.*, g.name AS group_name FROM zones z LEFT JOIN zone_groups g ON g.id=z.group_id ORDER BY COALESCE(g.name, 'ZZZZZZ'), z.name\").fetchall()\n"
 if old_dashboard_query in text:
     text = text.replace(old_dashboard_query, new_dashboard_query, 1)
 
-# Dashboard: mostra prima i gruppi invece di tutte le zone.
-# Il primo patch può cambiare il contenuto della riga zone_rows, quindi qui
-# sostituiamo qualunque assegnazione monoriga che inizi con "zone_rows =".
 if '    group_map = {}\n' not in text:
     pattern = re.compile(r'^    zone_rows = .*$', re.M)
     replacement = '''    group_map = {}
@@ -46,13 +42,11 @@ if '    group_map = {}\n' not in text:
     if count != 1:
         raise SystemExit('Dashboard zone_rows marker not found')
 
-# Pagina Zone/QR: aggiunge accesso alla gestione gruppi e colonna gruppo.
 old_query = "    zones = con.execute('SELECT z.*, COUNT(t.id) ticket_count FROM zones z LEFT JOIN tickets t ON t.zone_id=z.id GROUP BY z.id ORDER BY z.name').fetchall()"
-new_query = "    zones = con.execute('SELECT z.*, g.name AS group_name, COUNT(t.id) ticket_count FROM zones z LEFT JOIN zone_groups g ON g.id=z.group_id LEFT JOIN tickets t ON t.zone_id=z.id GROUP BY z.id ORDER BY COALESCE(g.name, \'ZZZZZZ\'), z.name').fetchall()"
+new_query = "    zones = con.execute(\"SELECT z.*, g.name AS group_name, COUNT(t.id) ticket_count FROM zones z LEFT JOIN zone_groups g ON g.id=z.group_id LEFT JOIN tickets t ON t.zone_id=z.id GROUP BY z.id ORDER BY COALESCE(g.name, 'ZZZZZZ'), z.name\").fetchall()"
 if old_query in text:
     text = text.replace(old_query, new_query, 1)
 
-# Sostituiamo la riga rows della pagina Zone/QR in modo meno fragile.
 zones_func_marker = "def zones_page(message: str = '', created: int = 0):"
 materials_marker = "@admin_app.get('/materials', response_class=HTMLResponse)"
 if zones_func_marker in text:
@@ -60,18 +54,20 @@ if zones_func_marker in text:
     end = text.index(materials_marker, start)
     section = text[start:end]
     rows_pattern = re.compile(r'^    rows = .*$', re.M)
-    new_rows = "    rows = ''.join(f'''<tr{' class=\\\"new-zone\\\"' if z['id'] == created else ''}><td><b>{esc(z['name'])}</b></td><td>{esc(z['group_name'] or 'Senza gruppo')}</td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class=\\\"btn\\\" href=\\\"zone/{z['id']}\\\">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan=\\\"5\\\">Nessuna zona</td></tr>'"
-    section, _ = rows_pattern.subn(new_rows, section, count=1)
+    new_rows = '''    rows = ''.join(f'''<tr><td><b>{esc(z["name"])}</b></td><td>{esc(z["group_name"] or "Senza gruppo")}</td><td>{"Attiva" if z["active"] else "Disattivata"}</td><td>{z["ticket_count"]}</td><td><a class="btn" href="zone/{z["id"]}">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan="5">Nessuna zona</td></tr>' '''
+    section, count = rows_pattern.subn(new_rows.rstrip(), section, count=1)
+    if count != 1:
+        raise SystemExit('Zones rows marker not found')
     old_head = '<div class="card span-8"><h2>Zone esistenti</h2><div class="table-wrap"><table><tr><th>Zona</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2>'
     new_head = '<div class="card span-8"><div class="actions" style="justify-content:space-between"><h2>Zone esistenti</h2><a class="btn" href="zone-groups">📁 Gestisci gruppi</a></div><div class="table-wrap"><table><tr><th>Zona</th><th>Gruppo</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2>'
-    if old_head in section:
-        section = section.replace(old_head, new_head, 1)
+    if old_head not in section:
+        raise SystemExit('Zones page header marker not found')
+    section = section.replace(old_head, new_head, 1)
     text = text[:start] + section + text[end:]
 
-# Rotte per gruppi e pagina di navigazione del singolo gruppo.
 route_marker = "@admin_app.get('/materials', response_class=HTMLResponse)"
 if "@admin_app.get('/zone-groups'" not in text:
-    routes = r"""
+    routes = r'''
 @admin_app.get('/zone-groups', response_class=HTMLResponse)
 def zone_groups_page(message: str = ''):
     con = db()
@@ -86,7 +82,6 @@ def zone_groups_page(message: str = ''):
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
     return page('Gruppi di zone', f'''{notice}<div class="grid"><div class="card span-8"><h2>Gruppi</h2>{rows}</div><div class="card span-4"><h2>Nuovo gruppo</h2><form method="post" action="zone-groups/create"><label>Nome gruppo</label><input name="name" maxlength="80" required placeholder="Es. Ristorante"><button>📁 Crea gruppo</button></form></div></div>''', back_url='zones')
 
-
 @admin_app.post('/zone-groups/create')
 def zone_group_create(name: str = Form(...)):
     name = name.strip()
@@ -100,8 +95,7 @@ def zone_group_create(name: str = Form(...)):
         con.close()
         return RedirectResponse('zone-groups?message=' + urllib.parse.quote('Esiste già un gruppo con questo nome.'), status_code=303)
     con.close()
-    return RedirectResponse('zone-groups?message=' + urllib.parse.quote(f'Gruppo "{name}" creato.'), status_code=303)
-
+    return RedirectResponse('zone-groups?message=' + urllib.parse.quote(f'Gruppo {name} creato.'), status_code=303)
 
 @admin_app.get('/zone-group/{group_id}', response_class=HTMLResponse)
 def zone_group_view(group_id: int):
@@ -117,10 +111,9 @@ def zone_group_view(group_id: int):
         name = group['name']
         zones = con.execute('SELECT * FROM zones WHERE group_id=? ORDER BY name', (group_id,)).fetchall()
     con.close()
-    rows = ''.join(f'<div class="zone-row"><div><a href="quick-ticket/{z["id"]}" style="text-decoration:none" title="Apri un ticket"><b>{esc(z["name"])}</b></a><br><span class="muted">{"Attiva" if z["active"] else "Disattivata"}</span></div><div class="actions"><a class="btn" href="quick-ticket/{z["id"]}">＋ Ticket</a><a class="btn" href="zone/{z["id"]}">QR →</a></div></div>' for z in zones) or '<p class="muted">Nessuna zona in questo gruppo.</p>'
+    rows = ''.join(f'<div class="zone-row"><div><b>{esc(z["name"])}</b><br><span class="muted">{"Attiva" if z["active"] else "Disattivata"}</span></div><a class="btn" href="../zone/{z["id"]}">Apri →</a></div>' for z in zones) or '<p class="muted">Nessuna zona in questo gruppo.</p>'
     edit = f'<a class="btn" href="{group_id}/edit">⚙ Modifica gruppo</a>' if group_id else ''
-    return page(f'Gruppo · {name}', f'<div class="card"><div class="actions" style="justify-content:space-between"><div><h2>📁 {esc(name)}</h2><p class="muted">{len(zones)} zone</p></div>{edit}</div>{rows}</div>', back_url='../')
-
+    return page(f'Gruppo · {name}', f'<div class="card"><div class="actions" style="justify-content:space-between"><div><h2>📁 {esc(name)}</h2><p class="muted">{len(zones)} zone</p></div>{edit}</div>{rows}</div>', back_url='../zones')
 
 @admin_app.get('/zone-group/{group_id}/edit', response_class=HTMLResponse)
 def zone_group_edit(group_id: int):
@@ -132,14 +125,13 @@ def zone_group_edit(group_id: int):
     con.close()
     if not group:
         raise HTTPException(404, 'Gruppo non trovato')
-    checks = ''.join(f'<label style="display:flex;gap:10px;align-items:center;padding:10px;border-bottom:1px solid var(--line)"><input style="width:auto" type="checkbox" name="zone_ids" value="{z["id"]}" {"checked" if z["group_id"] == group_id else ""}><span><b>{esc(z["name"])}</b>' + (f'<br><small class="muted">Ora in: {esc(z["current_group"])}</small>' if z['current_group'] and z['group_id'] != group_id else '') + '</span></label>' for z in zones)
-    return page(f'Modifica gruppo · {group["name"]}', f'''<div class="grid"><div class="card span-8"><h2>Zone nel gruppo</h2><form method="post" action="save"><p class="muted">Seleziona tutte le zone che vuoi mettere in <b>{esc(group['name'])}</b>. Una zona può appartenere a un solo gruppo.</p>{checks}<button>Salva assegnazione</button></form></div><div class="card span-4"><h2>Gruppo</h2><p><b>{esc(group['name'])}</b></p><form method="post" action="delete" onsubmit="return confirm('Eliminare questo gruppo? Le zone non verranno eliminate.')"><button class="danger">Elimina gruppo</button></form></div></div>''', back_url='../')
-
+    checks = ''.join(f'<label style="display:flex;gap:10px;align-items:center;padding:10px;border-bottom:1px solid var(--line)"><input style="width:auto" type="checkbox" name="zone_ids" value="{z["id"]}" {"checked" if z["group_id"] == group_id else ""}><span><b>{esc(z["name"])}</b></span></label>' for z in zones)
+    return page(f'Modifica gruppo · {group["name"]}', f'''<div class="grid"><div class="card span-8"><h2>Zone nel gruppo</h2><form method="post" action="edit/save"><p class="muted">Seleziona le zone da inserire in <b>{esc(group['name'])}</b>.</p>{checks}<button>Salva assegnazione</button></form></div><div class="card span-4"><h2>Gruppo</h2><p><b>{esc(group['name'])}</b></p><form method="post" action="edit/delete" onsubmit="return confirm('Eliminare questo gruppo? Le zone resteranno disponibili.')"><button class="danger">Elimina gruppo</button></form></div></div>''', back_url='../../zone-groups')
 
 @admin_app.post('/zone-group/{group_id}/edit/save')
 def zone_group_save(group_id: int, zone_ids: list[int] = Form(default=[])):
     con = db()
-    group = con.execute('SELECT * FROM zone_groups WHERE id=?', (group_id,)).fetchone()
+    group = con.execute('SELECT id FROM zone_groups WHERE id=?', (group_id,)).fetchone()
     if not group:
         con.close()
         raise HTTPException(404, 'Gruppo non trovato')
@@ -150,11 +142,10 @@ def zone_group_save(group_id: int, zone_ids: list[int] = Form(default=[])):
     con.close()
     return RedirectResponse('../../../zone-groups?message=' + urllib.parse.quote('Assegnazione zone salvata.'), status_code=303)
 
-
 @admin_app.post('/zone-group/{group_id}/edit/delete')
 def zone_group_delete(group_id: int):
     con = db()
-    group = con.execute('SELECT * FROM zone_groups WHERE id=?', (group_id,)).fetchone()
+    group = con.execute('SELECT id FROM zone_groups WHERE id=?', (group_id,)).fetchone()
     if not group:
         con.close()
         raise HTTPException(404, 'Gruppo non trovato')
@@ -164,8 +155,7 @@ def zone_group_delete(group_id: int):
     con.close()
     return RedirectResponse('../../../zone-groups?message=' + urllib.parse.quote('Gruppo eliminato. Le zone sono rimaste disponibili.'), status_code=303)
 
-
-"""
+'''
     if route_marker not in text:
         raise SystemExit('Route insertion marker not found')
     text = text.replace(route_marker, routes + route_marker, 1)
