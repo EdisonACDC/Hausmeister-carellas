@@ -77,7 +77,7 @@ def zone_group_edit(group_id: int):
         checks += f'<label style="display:flex;gap:10px;align-items:center;padding:12px;border-bottom:1px solid var(--line)"><input style="width:auto" type="checkbox" name="zone_ids" value="{z["id"]}" {checked}><span><b>{esc(z["name"])}</b><span class="muted">{current}</span></span></label>'
     if not checks:
         checks = '<p class="muted">Non ci sono ancora zone.</p>'
-    body = f'''<div class="card"><h2>📁 {esc(group['name'])}</h2><p class="muted">Seleziona le zone che vuoi inserire in questo gruppo. Una zona può appartenere a un solo gruppo.</p><form method="post" action="save">{checks}<button type="submit" style="margin-top:16px">Salva assegnazione</button></form></div>'''
+    body = f'''<div class="card"><h2>📁 {esc(group['name'])}</h2><p class="muted">Seleziona le zone che vuoi inserire in questo gruppo. Una zona può appartenere a un solo gruppo.</p><form method="post" action="edit/save">{checks}<button type="submit" style="margin-top:16px">Salva assegnazione</button></form></div>'''
     return page(f'Gruppo · {group["name"]}', body, back_url='../../zone-groups')
 
 
