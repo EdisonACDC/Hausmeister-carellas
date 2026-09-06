@@ -42,7 +42,7 @@ elif 'whatsapp_history = con.execute' not in text:
 marker = "    delete_form = ''\n"
 if 'whatsapp_panel =' not in text:
     addition = '''    contact_buttons = ''.join(
-        f'<a class="btn" style="background:#16883f;margin:5px 5px 5px 0" href="{ticket_id}/whatsapp/{c["id"]}" target="_blank">WhatsApp · {esc(c["name"])}</a>'
+        f'<a class="btn" style="background:#16883f;margin:5px 5px 5px 0" href="{ticket_id}/whatsapp/{c["id"]}" target="_blank" rel="noopener">WhatsApp · {esc(c["name"])}</a>'
         for c in whatsapp_contacts
     )
     if not contact_buttons:
@@ -92,6 +92,15 @@ def whatsapp_ticket_id(signed_token: str):
         return int(data['ticket'])
     except (BadSignature, KeyError, TypeError, ValueError):
         raise HTTPException(403, 'Collegamento WhatsApp non valido o scaduto')
+
+
+def whatsapp_public_base_url():
+    options = load_options()
+    tunnel = (options.get('tunnel_public_url') or '').strip().rstrip('/')
+    if tunnel:
+        return tunnel
+    base = (options.get('public_base_url') or '').strip().rstrip('/')
+    return base
 
 
 @admin_app.get('/settings/whatsapp', response_class=HTMLResponse)
@@ -146,7 +155,7 @@ def whatsapp_contact_delete(contact_id: int):
     return RedirectResponse('../../whatsapp', status_code=303)
 
 
-@admin_app.get('/ticket/{ticket_id}/whatsapp/{contact_id}')
+@admin_app.get('/ticket/{ticket_id}/whatsapp/{contact_id}', response_class=HTMLResponse)
 def whatsapp_share_ticket(ticket_id: int, contact_id: int):
     con = db()
     ticket = con.execute('SELECT t.*,z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id WHERE t.id=?', (ticket_id,)).fetchone()
@@ -154,10 +163,10 @@ def whatsapp_share_ticket(ticket_id: int, contact_id: int):
     if not ticket or not contact:
         con.close()
         raise HTTPException(404, 'Ticket o contatto non trovato')
-    base = public_base_url().rstrip('/')
+    base = whatsapp_public_base_url()
     if not base:
         con.close()
-        raise HTTPException(409, 'Configura prima URL pubblico nelle impostazioni dell’add-on.')
+        raise HTTPException(409, 'Configura prima URL pubblico o tunnel pubblico nelle impostazioni dell’add-on.')
     token = whatsapp_ticket_token(ticket_id)
     link = f'{base}/w/{urllib.parse.quote(token, safe="")}'
     message = (
@@ -172,8 +181,10 @@ def whatsapp_share_ticket(ticket_id: int, contact_id: int):
     con.execute('INSERT INTO whatsapp_shares(ticket_id,contact_id,sent_at) VALUES(?,?,?)', (ticket_id, contact_id, now_iso()))
     con.commit()
     con.close()
-    url = f'https://wa.me/{contact["phone"]}?text={urllib.parse.quote(message)}'
-    return RedirectResponse(url, status_code=303)
+    wa_url = f'https://wa.me/{contact["phone"]}?text={urllib.parse.quote(message)}'
+    safe_url = esc(wa_url)
+    body = f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Apri WhatsApp</title></head><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;padding:24px;text-align:center"><h2>Apertura WhatsApp…</h2><p>Se WhatsApp non si apre automaticamente, premi il pulsante.</p><p><a href="{safe_url}" style="display:inline-block;background:#16883f;color:white;text-decoration:none;padding:14px 20px;border-radius:12px;font-weight:700">Apri WhatsApp</a></p><script>setTimeout(function(){{window.location.href={json.dumps(wa_url)};}},120);</script></body></html>'''
+    return HTMLResponse(body, headers={'Cache-Control':'no-store'})
 
 
 '''
