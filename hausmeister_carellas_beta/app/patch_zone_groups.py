@@ -22,15 +22,17 @@ if "PRAGMA table_info(zones)" not in text:
     text = text.replace(marker, addition + marker, 1)
 
 # Dashboard: carica il nome del gruppo per ogni zona.
-text = text.replace(
-    "    zones = con.execute('SELECT * FROM zones ORDER BY name').fetchall()\n",
-    "    zones = con.execute('SELECT z.*, g.name AS group_name FROM zones z LEFT JOIN zone_groups g ON g.id=z.group_id ORDER BY COALESCE(g.name, \'ZZZZZZ\'), z.name').fetchall()\n",
-    1,
-)
+old_dashboard_query = "    zones = con.execute('SELECT * FROM zones ORDER BY name').fetchall()\n"
+new_dashboard_query = "    zones = con.execute('SELECT z.*, g.name AS group_name FROM zones z LEFT JOIN zone_groups g ON g.id=z.group_id ORDER BY COALESCE(g.name, \'ZZZZZZ\'), z.name').fetchall()\n"
+if old_dashboard_query in text:
+    text = text.replace(old_dashboard_query, new_dashboard_query, 1)
 
 # Dashboard: mostra prima i gruppi invece di tutte le zone.
-pattern = re.compile(r"^    zone_rows = ''\.join\(.*?\) or '<p class=\\\"muted\\\">Nessuna zona</p>'$", re.M)
-replacement = '''    group_map = {}
+# Il primo patch può cambiare il contenuto della riga zone_rows, quindi qui
+# sostituiamo qualunque assegnazione monoriga che inizi con "zone_rows =".
+if '    group_map = {}\n' not in text:
+    pattern = re.compile(r'^    zone_rows = .*$', re.M)
+    replacement = '''    group_map = {}
     for z in zones:
         key = z['group_id'] or 0
         if key not in group_map:
@@ -40,23 +42,31 @@ replacement = '''    group_map = {}
         f'<a class="zone-row" style="text-decoration:none" href="zone-group/{group_id}"><div><b>📁 {esc(data["name"])}</b><br><span class="muted">{len(data["zones"])} zone</span></div><span class="btn">Apri →</span></a>'
         for group_id, data in group_map.items()
     ) or '<p class="muted">Nessuna zona</p>' '''
-if pattern.search(text):
-    text = pattern.sub(replacement.rstrip(), text, count=1)
-elif "group_map = {}" not in text:
-    raise SystemExit('Dashboard zone_rows marker not found')
+    text, count = pattern.subn(replacement.rstrip(), text, count=1)
+    if count != 1:
+        raise SystemExit('Dashboard zone_rows marker not found')
 
 # Pagina Zone/QR: aggiunge accesso alla gestione gruppi e colonna gruppo.
 old_query = "    zones = con.execute('SELECT z.*, COUNT(t.id) ticket_count FROM zones z LEFT JOIN tickets t ON t.zone_id=z.id GROUP BY z.id ORDER BY z.name').fetchall()"
 new_query = "    zones = con.execute('SELECT z.*, g.name AS group_name, COUNT(t.id) ticket_count FROM zones z LEFT JOIN zone_groups g ON g.id=z.group_id LEFT JOIN tickets t ON t.zone_id=z.id GROUP BY z.id ORDER BY COALESCE(g.name, \'ZZZZZZ\'), z.name').fetchall()"
-text = text.replace(old_query, new_query, 1)
+if old_query in text:
+    text = text.replace(old_query, new_query, 1)
 
-old_rows = "    rows = ''.join(f'''<tr{' class=\\\"new-zone\\\"' if z['id'] == created else ''}><td><b>{esc(z['name'])}</b></td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class=\\\"btn\\\" href=\\\"zone/{z['id']}\\\">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan=\\\"4\\\">Nessuna zona</td></tr>'"
-new_rows = "    rows = ''.join(f'''<tr{' class=\\\"new-zone\\\"' if z['id'] == created else ''}><td><b>{esc(z['name'])}</b></td><td>{esc(z['group_name'] or 'Senza gruppo')}</td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class=\\\"btn\\\" href=\\\"zone/{z['id']}\\\">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan=\\\"5\\\">Nessuna zona</td></tr>'"
-text = text.replace(old_rows, new_rows, 1)
-
-old_page = "<div class=\"card span-8\"><h2>Zone esistenti</h2><div class=\"table-wrap\"><table><tr><th>Zona</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class=\"card span-4\"><h2>Nuova zona</h2>"
-new_page = "<div class=\"card span-8\"><div class=\"actions\" style=\"justify-content:space-between\"><h2>Zone esistenti</h2><a class=\"btn\" href=\"zone-groups\">📁 Gestisci gruppi</a></div><div class=\"table-wrap\"><table><tr><th>Zona</th><th>Gruppo</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class=\"card span-4\"><h2>Nuova zona</h2>"
-text = text.replace(old_page, new_page, 1)
+# Sostituiamo la riga rows della pagina Zone/QR in modo meno fragile.
+zones_func_marker = "def zones_page(message: str = '', created: int = 0):"
+materials_marker = "@admin_app.get('/materials', response_class=HTMLResponse)"
+if zones_func_marker in text:
+    start = text.index(zones_func_marker)
+    end = text.index(materials_marker, start)
+    section = text[start:end]
+    rows_pattern = re.compile(r'^    rows = .*$', re.M)
+    new_rows = "    rows = ''.join(f'''<tr{' class=\\\"new-zone\\\"' if z['id'] == created else ''}><td><b>{esc(z['name'])}</b></td><td>{esc(z['group_name'] or 'Senza gruppo')}</td><td>{'Attiva' if z['active'] else 'Disattivata'}</td><td>{z['ticket_count']}</td><td><a class=\\\"btn\\\" href=\\\"zone/{z['id']}\\\">Gestisci / QR</a></td></tr>''' for z in zones) or '<tr><td colspan=\\\"5\\\">Nessuna zona</td></tr>'"
+    section, _ = rows_pattern.subn(new_rows, section, count=1)
+    old_head = '<div class="card span-8"><h2>Zone esistenti</h2><div class="table-wrap"><table><tr><th>Zona</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2>'
+    new_head = '<div class="card span-8"><div class="actions" style="justify-content:space-between"><h2>Zone esistenti</h2><a class="btn" href="zone-groups">📁 Gestisci gruppi</a></div><div class="table-wrap"><table><tr><th>Zona</th><th>Gruppo</th><th>Stato</th><th>Ticket</th><th></th></tr>{rows}</table></div></div><div class="card span-4"><h2>Nuova zona</h2>'
+    if old_head in section:
+        section = section.replace(old_head, new_head, 1)
+    text = text[:start] + section + text[end:]
 
 # Rotte per gruppi e pagina di navigazione del singolo gruppo.
 route_marker = "@admin_app.get('/materials', response_class=HTMLResponse)"
