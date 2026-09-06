@@ -57,9 +57,9 @@ def zone_group_create(name: str = Form(...)):
         con.commit()
     except sqlite3.IntegrityError:
         con.close()
-        return RedirectResponse('zone-groups?message=' + urllib.parse.quote('Esiste già un gruppo con questo nome.'), status_code=303)
+        return RedirectResponse('../zone-groups?message=' + urllib.parse.quote('Esiste già un gruppo con questo nome.'), status_code=303)
     con.close()
-    return RedirectResponse('zone-groups?message=' + urllib.parse.quote('Gruppo creato correttamente.'), status_code=303)
+    return RedirectResponse('../zone-groups?message=' + urllib.parse.quote('Gruppo creato correttamente.'), status_code=303)
 
 
 @admin_app.get('/zone-group/{group_id}/edit', response_class=HTMLResponse)
