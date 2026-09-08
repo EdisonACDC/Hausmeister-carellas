@@ -17,13 +17,14 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /app/requirements.txt
 COPY app /app/app
 RUN python3 -m py_compile /app/app/fix_maintenance_patch.py \
     && python3 /app/app/fix_maintenance_patch.py \
-    && python3 -m py_compile /app/app/patch_zone_groups.py /app/app/patch_whatsapp.py /app/app/patch_whatsapp_direct.py /app/app/patch_maintenance.py /app/app/patch_backup.py /app/app/patch_smart_inventory.py \
+    && python3 -m py_compile /app/app/patch_zone_groups.py /app/app/patch_whatsapp.py /app/app/patch_whatsapp_direct.py /app/app/patch_maintenance.py /app/app/patch_backup.py /app/app/patch_smart_inventory.py /app/app/patch_smart_inventory_ui.py \
     && python3 /app/app/patch_zone_groups.py \
     && python3 /app/app/patch_whatsapp.py \
     && python3 /app/app/patch_whatsapp_direct.py \
     && python3 /app/app/patch_maintenance.py \
     && python3 /app/app/patch_backup.py \
     && python3 /app/app/patch_smart_inventory.py \
+    && python3 /app/app/patch_smart_inventory_ui.py \
     && python3 -m py_compile /app/app/main.py
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
