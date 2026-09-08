@@ -1,5 +1,5 @@
 name: Hausmeister Carellas BETA
-version: "1.4.0-beta.27"
+version: "1.4.0-beta.28"
 slug: hausmeister_carellas_beta
 description: Versione di test isolata di Hausmeister Carellas per sviluppo e collaudo
 url: https://github.com/EdisonACDC/Hausmeister-carellas
@@ -20,6 +20,7 @@ ports_description:
   8080/tcp: Portale pubblico BETA (assegnare una porta host libera diversa dalla Stable)
 map:
   - addon_config:rw
+  - media:rw
 options:
   public_base_url: ""
   notify_service: "mobile_app_iphone_marius"
@@ -28,9 +29,6 @@ options:
   beta_mode: true
   tunnel_enabled: false
   tunnel_public_url: ""
-  vision_url: ""
-  vision_model: ""
-  vision_api_key: ""
 schema:
   public_base_url: str
   notify_service: str
@@ -39,6 +37,3 @@ schema:
   beta_mode: bool
   tunnel_enabled: bool
   tunnel_public_url: str
-  vision_url: str
-  vision_model: str
-  vision_api_key: password
