@@ -1,6 +1,6 @@
 FROM ghcr.io/home-assistant/base:latest
 
-ARG BUILD_VERSION=1.5.5
+ARG BUILD_VERSION=1.5.6
 ARG BUILD_ARCH
 
 LABEL \
@@ -15,12 +15,13 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /app/requirements.txt
 COPY app /app/app
-RUN python3 -m py_compile /app/app/patch_zone_groups.py /app/app/patch_manager_public_groups.py /app/app/patch_manager_zones_fix.py /app/app/patch_backup.py /app/app/patch_smart_inventory.py \
+RUN python3 -m py_compile /app/app/patch_zone_groups.py /app/app/patch_manager_public_groups.py /app/app/patch_manager_zones_fix.py /app/app/patch_backup.py /app/app/patch_smart_inventory.py /app/app/patch_direct_zone_ticket.py \
     && python3 /app/app/patch_zone_groups.py \
     && python3 /app/app/patch_manager_public_groups.py \
     && python3 /app/app/patch_manager_zones_fix.py \
     && python3 /app/app/patch_backup.py \
     && python3 /app/app/patch_smart_inventory.py \
+    && python3 /app/app/patch_direct_zone_ticket.py \
     && python3 -m py_compile /app/app/main.py
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
