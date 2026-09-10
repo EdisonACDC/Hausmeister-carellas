@@ -20,17 +20,29 @@ old_form = '''        <form method="post" enctype="multipart/form-data" action="
           <button class="mi-primary" type="submit">🧠 Riconoscimento automatico</button>
         </form>'''
 new_form = '''        <div class="mi-grid2" style="margin-top:12px">
-          <form method="post" enctype="multipart/form-data" action="materials/recognize">
+          <form class="mi-photo-form" method="post" enctype="multipart/form-data" action="materials/recognize">
             <label>Scatta foto articolo</label>
-            <input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" required>
+            <input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" required onchange="submitInventoryPhoto(this)">
             <button class="mi-primary" type="submit">📷 Scatta foto e compila</button>
           </form>
-          <form method="post" enctype="multipart/form-data" action="materials/recognize">
+          <form class="mi-photo-form" method="post" enctype="multipart/form-data" action="materials/recognize">
             <label>Inserisci immagine articolo</label>
-            <input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" required>
+            <input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" required onchange="submitInventoryPhoto(this)">
             <button class="mi-primary" type="submit">🖼 Carica immagine e compila</button>
           </form>
-        </div>'''
+        </div>
+        <div id="mi-photo-status" class="notice" style="display:none;margin-top:12px">⏳ Analisi della foto in corso. Attendi la compilazione automatica…</div>
+        <script>
+          function submitInventoryPhoto(input) {{
+            if (!input.files || !input.files.length) return;
+            var status = document.getElementById('mi-photo-status');
+            if (status) status.style.display = 'block';
+            document.querySelectorAll('.mi-photo-form input,.mi-photo-form button').forEach(function(el) {{
+              if (el !== input) el.disabled = true;
+            }});
+            window.setTimeout(function() {{ input.form.submit(); }}, 50);
+          }}
+        </script>'''
 if old_form in text:
     text = text.replace(old_form, new_form, 1)
 elif 'Scatta foto e compila' not in text:
