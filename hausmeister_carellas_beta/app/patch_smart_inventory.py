@@ -162,16 +162,25 @@ def smart_materials():
 
 @admin_app.post('/materials/recognize', response_class=HTMLResponse)
 async def smart_material_recognize(photo: UploadFile = File(...)):
-    if not photo.filename or photo.content_type not in ALLOWED_TYPES:
-        raise HTTPException(400, 'Formato foto non supportato')
-    content = await photo.read(MAX_UPLOAD_BYTES + 1)
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(400, 'Foto troppo grande')
-    suffix = Path(photo.filename).suffix.lower()[:8] or '.jpg'
-    stored = 'material_tmp_' + secrets.token_hex(16) + suffix
-    (UPLOAD_DIR / stored).write_bytes(content)
-    values, notice = inventory_ai_recognize(content, photo.content_type)
-    return smart_inventory_page(values, stored, notice)
+    stored = ''
+    try:
+        if not photo.filename or photo.content_type not in ALLOWED_TYPES:
+            return smart_inventory_page(notice='Formato foto non supportato. Usa JPG, PNG o WEBP.')
+        content = await photo.read(MAX_UPLOAD_BYTES + 1)
+        if not content:
+            return smart_inventory_page(notice='La foto ricevuta è vuota. Riprova.')
+        if len(content) > MAX_UPLOAD_BYTES:
+            return smart_inventory_page(notice='Foto troppo grande. Il limite è 8 MB.')
+        suffix = Path(photo.filename).suffix.lower()[:8] or '.jpg'
+        stored = 'material_tmp_' + secrets.token_hex(16) + suffix
+        (UPLOAD_DIR / stored).write_bytes(content)
+        values, notice = inventory_ai_recognize(content, photo.content_type)
+        return smart_inventory_page(values, stored, notice)
+    except Exception as exc:
+        return smart_inventory_page(
+            temp_photo=stored,
+            notice=f'Compilazione automatica non riuscita ({type(exc).__name__}: {str(exc)[:180]}). Puoi riprovare o compilare i campi manualmente.'
+        )
 
 
 @admin_app.get('/materials/temp-photo/{stored_name}')
