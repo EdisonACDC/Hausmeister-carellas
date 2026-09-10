@@ -59,8 +59,14 @@ new_func = r'''def inventory_ai_recognize(image_bytes: bytes, content_type: str)
         if not isinstance(values, dict) or not values.get('name'):
             raise ValueError('AI Task non ha restituito dati articolo')
         return values, 'Compilazione automatica completata. Controlla i dati e salva.'
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = exc.read().decode('utf-8', errors='replace')[:300]
+        except Exception:
+            detail = ''
+        return {}, f'Compilazione automatica non riuscita (HTTP {exc.code}). Verifica la AI Task immagini in Home Assistant. {detail}'
     except Exception as exc:
-        return {}, 'Compilazione automatica non disponibile. Configura in Home Assistant una AI Task che supporti le immagini.'
+        return {}, f'Compilazione automatica non riuscita ({type(exc).__name__}). Verifica che in Home Assistant sia selezionata una AI Task che supporta le immagini.'
     finally:
         try:
             media_file.unlink(missing_ok=True)
