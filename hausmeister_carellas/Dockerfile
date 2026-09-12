@@ -1,6 +1,6 @@
 FROM ghcr.io/home-assistant/base:latest
 
-ARG BUILD_VERSION=1.5.7
+ARG BUILD_VERSION=1.5.8
 ARG BUILD_ARCH
 
 LABEL \
@@ -24,7 +24,7 @@ RUN python3 -m py_compile /app/app/fix_maintenance_patch.py \
     && python3 /app/app/patch_maintenance.py \
     && python3 /app/app/patch_backup.py \
     && python3 /app/app/patch_smart_inventory.py \
-    && python3 -m py_compile /app/app/main.py
+    && python3 -m py_compile /app/app/main.py /app/app/ha_sensor_publisher.py
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 CMD ["/run.sh"]
