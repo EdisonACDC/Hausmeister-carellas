@@ -36,7 +36,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.5.15'
+APP_VERSION = '1.5.16'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -727,48 +727,49 @@ def qr_action_buttons(endpoint: str, element_id: str, filename: str, lang: str =
     size_label, download_label, share_label, print_label, brother_tape_label, brother_download_label = labels
     select_id = f'qr-size-{element_id}'
     brother_select_id = f'brother-tape-{element_id}'
-    return f'''<div class="qr-tools"><label for="{esc(select_id)}">{esc(size_label)}</label><select id="{esc(select_id)}" class="qr-size-picker"><option value="5">5 cm</option><option value="7">7 cm</option><option value="10" selected>10 cm</option><option value="12">12 cm</option><option value="15">15 cm</option></select><div class="actions"><a class="btn" href="{esc(endpoint)}?download=1">⬇ {esc(download_label)}</a><button type="button" onclick="return shareQrFile('{esc(endpoint)}','{esc(filename)}')">⌁ {esc(share_label)}</button><button type="button" onclick="return printQrPdf('{esc(endpoint)}','{esc(select_id)}','{esc(Path(filename).stem)}.pdf')">▣ {esc(print_label)}</button></div><div class="brother-tools"><label for="{esc(brother_select_id)}">{esc(brother_tape_label)}</label><select id="{esc(brother_select_id)}" class="qr-size-picker"><option value="12">12 mm</option><option value="18">18 mm</option><option value="24" selected>24 mm</option></select><button type="button" onclick="return downloadBrotherQr('{esc(endpoint)}','{esc(brother_select_id)}')">▣ {esc(brother_download_label)}</button></div></div>'''
+    return f'''<div class="qr-tools"><label for="{esc(select_id)}">{esc(size_label)}</label><select id="{esc(select_id)}" class="qr-size-picker"><option value="5">5 cm</option><option value="7">7 cm</option><option value="10" selected>10 cm</option><option value="12">12 cm</option><option value="15">15 cm</option></select><div class="actions"><a class="btn" href="{esc(endpoint)}?download=1">⬇ {esc(download_label)}</a><button type="button" onclick="return shareQrFile('{esc(endpoint)}','{esc(filename)}')">⌁ {esc(share_label)}</button><button type="button" onclick="return printQrPdf('{esc(endpoint)}','{esc(select_id)}','{esc(Path(filename).stem)}.pdf')">▣ {esc(print_label)}</button></div><div class="brother-tools"><label for="{esc(brother_select_id)}">{esc(brother_tape_label)}</label><select id="{esc(brother_select_id)}" class="qr-size-picker"><option value="12">12 mm</option><option value="18">18 mm</option><option value="24" selected>24 mm</option></select><button type="button" onclick="return shareBrotherLabel('{esc(endpoint)}','{esc(brother_select_id)}','{esc(Path(filename).stem)}-brother.lbx')">▣ {esc(brother_download_label)} (.lbx)</button></div></div>'''
 
 
 def brother_qr_response(url: str, filename: str, tape: int = 24):
-    """Crea un BMP monocromatico alla risoluzione nativa della Brother PT-E550W."""
+    """Crea un progetto LBX apribile da P-touch Editor e Brother Pro Label Tool."""
     tape_width = int(tape or 24)
-    printable_pixels = {12: 70, 18: 112, 24: 128}.get(tape_width)
-    if printable_pixels is None:
+    tape_spec = {
+        12: {'paper': 34.0, 'print': 28.0, 'format': 259, 'cell': 0.6, 'font': 5.0},
+        18: {'paper': 51.2, 'print': 44.8, 'format': 260, 'cell': 1.0, 'font': 7.0},
+        24: {'paper': 68.0, 'print': 51.2, 'format': 261, 'cell': 1.2, 'font': 8.0},
+    }.get(tape_width)
+    if tape_spec is None:
         raise HTTPException(422, 'Nastro Brother non valido: usa 12, 18 oppure 24 mm')
-
-    qr = qrcode.QRCode(
-        version=None,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=1,
-        border=4,
-    )
-    qr.add_data(url)
-    qr.make(fit=True)
-    matrix = qr.get_matrix()
-    module_count = len(matrix)
-    if module_count > printable_pixels:
-        raise HTTPException(422, 'Il QR è troppo complesso per questo nastro: usa 18 o 24 mm')
-    scale = max(1, printable_pixels // module_count)
-    qr_pixels = module_count * scale
-    offset = (printable_pixels - qr_pixels) // 2
-    image = Image.new('1', (printable_pixels, printable_pixels), 1)
-    pixels = image.load()
-    for row_index, row in enumerate(matrix):
-        for column_index, dark in enumerate(row):
-            if not dark:
-                continue
-            x0 = offset + column_index * scale
-            y0 = offset + row_index * scale
-            for y in range(y0, y0 + scale):
-                for x in range(x0, x0 + scale):
-                    pixels[x, y] = 0
-
+    paper_width = tape_spec['paper']
+    print_width = tape_spec['print']
+    left = round((paper_width - print_width) / 2, 1)
+    qr_size = round(print_width - 0.4, 1)
+    page_height = 96.4  # 34 mm: lunghezza dell'etichetta richiesta.
+    text_y = round(6.0 + qr_size + 3.0, 1)
+    text_height = round(page_height - text_y - 5.6, 1)
+    safe_url = esc(url)
+    label_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<pt:document xmlns:pt="http://schemas.brother.info/ptouch/2007/lbx/main" xmlns:style="http://schemas.brother.info/ptouch/2007/lbx/style" xmlns:text="http://schemas.brother.info/ptouch/2007/lbx/text" xmlns:draw="http://schemas.brother.info/ptouch/2007/lbx/draw" xmlns:image="http://schemas.brother.info/ptouch/2007/lbx/image" xmlns:barcode="http://schemas.brother.info/ptouch/2007/lbx/barcode" xmlns:database="http://schemas.brother.info/ptouch/2007/lbx/database" xmlns:table="http://schemas.brother.info/ptouch/2007/lbx/table" xmlns:cable="http://schemas.brother.info/ptouch/2007/lbx/cable" version="1.7" generator="Hausmeister Carellas {APP_VERSION}">
+  <pt:body currentSheet="QR Carellas" direction="LTR"><style:sheet name="QR Carellas">
+    <style:paper media="0" width="{paper_width}pt" height="{page_height}pt" marginLeft="{left}pt" marginTop="5.6pt" marginRight="{left}pt" marginBottom="5.6pt" orientation="portrait" autoLength="false" monochromeDisplay="true" printColorDisplay="false" printColorsID="8" paperColor="#FFFFFF" paperInk="#000000" split="1" format="{tape_spec['format']}" backgroundTheme="0" printerID="26160" printerName="Brother PT-E550W"/>
+    <style:cutLine regularCut="0pt" freeCut=""/>
+    <style:backGround x="{left}pt" y="5.6pt" width="{print_width}pt" height="85.2pt" brushStyle="NULL" brushId="0" userPattern="NONE" userPatternId="0" color="#000000" printColorNumber="1" backColor="#FFFFFF" backPrintColorNumber="0"/>
+    <pt:objects>
+      <barcode:barcode><pt:objectStyle x="{round(left + 0.2, 1)}pt" y="6pt" width="{qr_size}pt" height="{qr_size}pt" backColor="#FFFFFF" backPrintColorNumber="0" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE"><pt:pen style="NULL" widthX="0.5pt" widthY="0.5pt" color="#000000" printColorNumber="1"/><pt:brush style="NULL" color="#000000" printColorNumber="1" id="0"/><pt:expanded objectName="QR Carellas" ID="0" lock="0" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" dbRecordOffset="0" linkStatus="NONE" linkID="0"/></pt:objectStyle><barcode:barcodeStyle protocol="QRCODE" lengths="{len(url)}" zeroFill="false" barWidth="1.2pt" barRatio="1:3" humanReadable="false" humanReadableAlignment="CENTER" checkDigit="false" autoLengths="true" margin="true" sameLengthBar="false" bearerBar="false"/><barcode:qrcodeStyle model="2" eccLevel="15%" cellSize="{tape_spec['cell']}pt" mbcs="auto" joint="1" version="auto"/><pt:data>{safe_url}</pt:data></barcode:barcode>
+      <text:text><pt:objectStyle x="{left}pt" y="{text_y}pt" width="{print_width}pt" height="{text_height}pt" backColor="#FFFFFF" backPrintColorNumber="0" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE"><pt:pen style="NULL" widthX="0.5pt" widthY="0.5pt" color="#000000" printColorNumber="1"/><pt:brush style="NULL" color="#000000" printColorNumber="1" id="0"/><pt:expanded objectName="Carellas" ID="1" lock="0" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" linkStatus="NONE" linkID="0"/></pt:objectStyle><text:ptFontInfo><text:logFont name="Arial" width="0" italic="false" weight="700" charSet="0" pitchAndFamily="34"/><text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="{tape_spec['font']}pt" orgSize="{tape_spec['font']}pt" textColor="#000000" textPrintColorNumber="1"/></text:ptFontInfo><text:textControl control="LONGTEXTFIXED" clipFrame="false" aspectNormal="true" shrink="true" autoLF="true" avoidImage="false"/><text:textAlign horizontalAlignment="CENTER" verticalAlignment="CENTER" inLineAlignment="CENTER"/><text:textStyle vertical="false" nullBlock="false" charSpace="0" lineSpace="0" orgPoint="{tape_spec['font']}pt" combinedChars="false"/><pt:data>Carellas Ristorante</pt:data></text:text>
+    </pt:objects>
+  </style:sheet></pt:body>
+</pt:document>'''
+    timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+    prop_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<meta:properties xmlns:meta="http://schemas.brother.info/ptouch/2007/lbx/meta" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/"><meta:appName>com.brother.PtouchEditor</meta:appName><dc:title>QR Carellas</dc:title><dc:subject>Brother PT-E550W</dc:subject><dc:creator>Hausmeister Carellas</dc:creator><meta:keyword>QR</meta:keyword><dc:description>QR Carellas {tape_width} mm</dc:description><meta:template></meta:template><dcterms:created>{timestamp}</dcterms:created><dcterms:modified>{timestamp}</dcterms:modified><meta:lastPrinted></meta:lastPrinted><meta:modifiedBy>Hausmeister Carellas</meta:modifiedBy><meta:revision>1</meta:revision><meta:editTime>0</meta:editTime><meta:numPages>1</meta:numPages><meta:numWords>2</meta:numWords><meta:numChars>18</meta:numChars><meta:security>0</meta:security><meta:transferScript></meta:transferScript></meta:properties>'''
     buffer = io.BytesIO()
-    image.save(buffer, format='BMP', dpi=(180, 180))
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('label.xml', label_xml.encode('utf-8'))
+        archive.writestr('prop.xml', prop_xml.encode('utf-8'))
     buffer.seek(0)
-    brother_filename = f'{Path(filename).stem}-brother-{tape_width}mm.bmp'
-    return StreamingResponse(buffer, media_type='image/bmp', headers={
+    brother_filename = f'{Path(filename).stem}-brother-{tape_width}mm-24x34.lbx'
+    return StreamingResponse(buffer, media_type='application/octet-stream', headers={
         'Content-Disposition': f'attachment; filename="{brother_filename}"',
         'X-Content-Type-Options': 'nosniff',
         'X-Brother-Model': 'PT-E550W',
@@ -836,7 +837,7 @@ input,textarea,select{{width:100%;padding:13px 14px;margin:7px 0 15px;border:1px
 @media print{{@page{{margin:10mm}}body.qr-printing{{background:#fff}}body.qr-printing *{{visibility:hidden!important}}body.qr-printing img.qr{{visibility:visible!important;position:fixed;left:10mm;top:10mm;width:var(--qr-print-size,10cm)!important;height:var(--qr-print-size,10cm)!important;max-width:none!important;object-fit:contain}}}}
 @media(max-width:1000px){{.admin-shell{{grid-template-columns:1fr}}.sidebar{{height:auto;position:relative;padding:10px 12px;display:flex;align-items:center;gap:8px;overflow-x:auto}}.sidebar .brand-wrap{{min-width:155px;margin:0;padding:5px}}.sidebar .brand-logo{{width:145px}}.side-link{{white-space:nowrap;margin:0}}.side-foot{{display:none}}.span-3{{grid-column:span 6}}.span-4,.span-5,.span-6,.span-7,.span-8{{grid-column:span 12}}}}
 @media(max-width:640px){{.topbar{{padding:12px 14px}}.topbar h1{{font-size:20px}}.status-dot{{display:none}}main{{padding:12px}}.grid{{gap:10px}}.span-3,.span-4,.span-5,.span-6,.span-7,.span-8,.span-12{{grid-column:span 12}}.card{{padding:15px;border-radius:14px}}.metric strong{{font-size:24px}}.public-shell{{padding:14px}}.public-card{{padding:18px 15px}}.public-brand{{max-width:88%;width:270px}}.actions button,.actions .btn{{flex:1 1 140px}}.nav{{margin-bottom:8px}}.filters{{grid-template-columns:1fr}}.material-form-grid{{grid-template-columns:1fr}}.material-form-grid .full{{grid-column:auto}}.inventory-grid{{grid-template-columns:1fr}}}}
-</style><script>function adminGo(path){{const marker='/api/hassio_ingress/';const current=location.pathname;const start=current.indexOf(marker);if(start>=0){{const after=start+marker.length;const slash=current.indexOf('/',after);const base=slash>=0?current.slice(0,slash+1):current+'/';location.href=base+path;}}else{{location.href='/'+path;}}return false;}}function closePublicPage(){{window.close();setTimeout(function(){{if(!document.hidden&&history.length>1)history.back();}},180);}}function qrUrl(url,values){{const result=new URL(url,location.href);Object.keys(values).forEach(function(key){{result.searchParams.set(key,values[key]);}});return result.href;}}function downloadBrotherQr(url,selectId){{const select=document.getElementById(selectId);const tape=[12,18,24].includes(Number(select&&select.value))?Number(select.value):24;location.href=qrUrl(url,{{brother:'1',tape:String(tape),download:'1'}});return false;}}async function shareQrFile(url,filename){{const target=qrUrl(url,{{download:'0'}});try{{const response=await fetch(target,{{credentials:'same-origin'}});if(!response.ok)throw new Error('Download non riuscito');const blob=await response.blob();const file=new File([blob],filename,{{type:'image/png'}});if(navigator.share&&navigator.canShare&&navigator.canShare({{files:[file]}})){{await navigator.share({{files:[file],title:filename}});return false;}}}}catch(error){{if(error&&error.name==='AbortError')return false;}}window.open(target,'_blank');return false;}}async function printQrPdf(url,selectId,filename){{const select=document.getElementById(selectId);const size=Math.max(5,Math.min(15,Number(select&&select.value)||10));const target=qrUrl(url,{{pdf:'1',size:String(size),download:'0'}});const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent);if(isiOS&&navigator.share&&navigator.canShare){{try{{const response=await fetch(target,{{credentials:'same-origin'}});if(!response.ok)throw new Error('PDF non disponibile');const blob=await response.blob();const file=new File([blob],filename,{{type:'application/pdf'}});if(navigator.canShare({{files:[file]}})){{await navigator.share({{files:[file],title:filename}});return false;}}}}catch(error){{if(error&&error.name==='AbortError')return false;}}}}window.open(target,'_blank');return false;}}</script></head><body><div class="page {shell_class}">'''+(
+</style><script>function adminGo(path){{const marker='/api/hassio_ingress/';const current=location.pathname;const start=current.indexOf(marker);if(start>=0){{const after=start+marker.length;const slash=current.indexOf('/',after);const base=slash>=0?current.slice(0,slash+1):current+'/';location.href=base+path;}}else{{location.href='/'+path;}}return false;}}function closePublicPage(){{window.close();setTimeout(function(){{if(!document.hidden&&history.length>1)history.back();}},180);}}function qrUrl(url,values){{const result=new URL(url,location.href);Object.keys(values).forEach(function(key){{result.searchParams.set(key,values[key]);}});return result.href;}}async function shareBrotherLabel(url,selectId,filename){{const select=document.getElementById(selectId);const tape=[12,18,24].includes(Number(select&&select.value))?Number(select.value):24;const target=qrUrl(url,{{brother:'1',tape:String(tape),download:'1'}});try{{const response=await fetch(target,{{credentials:'same-origin'}});if(!response.ok)throw new Error('File Brother non disponibile');const blob=await response.blob();const finalName=filename.replace(/\\.lbx$/,'')+'-'+tape+'mm-24x34.lbx';const file=new File([blob],finalName,{{type:'application/octet-stream'}});if(navigator.share&&navigator.canShare&&navigator.canShare({{files:[file]}})){{await navigator.share({{files:[file],title:finalName}});return false;}}const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=finalName;document.body.appendChild(link);link.click();link.remove();setTimeout(function(){{URL.revokeObjectURL(link.href);}},1000);return false;}}catch(error){{if(error&&error.name==='AbortError')return false;location.href=target;return false;}}}}async function shareQrFile(url,filename){{const target=qrUrl(url,{{download:'0'}});try{{const response=await fetch(target,{{credentials:'same-origin'}});if(!response.ok)throw new Error('Download non riuscito');const blob=await response.blob();const file=new File([blob],filename,{{type:'image/png'}});if(navigator.share&&navigator.canShare&&navigator.canShare({{files:[file]}})){{await navigator.share({{files:[file],title:filename}});return false;}}}}catch(error){{if(error&&error.name==='AbortError')return false;}}window.open(target,'_blank');return false;}}async function printQrPdf(url,selectId,filename){{const select=document.getElementById(selectId);const size=Math.max(5,Math.min(15,Number(select&&select.value)||10));const target=qrUrl(url,{{pdf:'1',size:String(size),download:'0'}});const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent);if(isiOS&&navigator.share&&navigator.canShare){{try{{const response=await fetch(target,{{credentials:'same-origin'}});if(!response.ok)throw new Error('PDF non disponibile');const blob=await response.blob();const file=new File([blob],filename,{{type:'application/pdf'}});if(navigator.canShare({{files:[file]}})){{await navigator.share({{files:[file],title:filename}});return false;}}}}catch(error){{if(error&&error.name==='AbortError')return false;}}}}window.open(target,'_blank');return false;}}</script></head><body><div class="page {shell_class}">'''+(
     f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="/manager">⌂ {manager_text(lang, 'dashboard')}</a><a class="side-link" href="/manager/tickets">☷ {manager_text(lang, 'tickets')}</a><a class="side-link" href="/manager/zones">⌖ {manager_text(lang, 'zones')}</a><a class="side-link" href="/manager/materials">▦ {manager_text(lang, 'materials')}</a><span class="side-link disabled" aria-disabled="true" title="{manager_text(lang, 'admin_only')}">⚙ {manager_text(lang, 'settings')}</span><a class="side-link" href="/manager/logout">⇥ {manager_text(lang, 'logout')}</a><div class="side-foot">{manager_text(lang, 'portal')}<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Carellas Ristorante</small></div><div class="status-dot">● {manager_text(lang, 'portal')}</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if manager else f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="./" onclick="return adminGo('')">⌂ Dashboard</a><a class="side-link" href="tickets" onclick="return adminGo('tickets')">☷ Ticket</a><a class="side-link" href="zones" onclick="return adminGo('zones')">⌖ Zone / QR</a><a class="side-link" href="materials" onclick="return adminGo('materials')">▦ Magazzino materiali</a>{settings_link}<div class="side-foot">Hausmeister Carellas<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● {access_label}</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if not public else f'''<div class="public-wrap"><div class="public-brand">{brand_logo()}</div><div class="nav">{back}</div>{body}</div>''')+'''</div></body></html>'''
 
 
