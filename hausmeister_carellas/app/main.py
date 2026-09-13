@@ -36,7 +36,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.5.13'
+APP_VERSION = '1.5.14'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
