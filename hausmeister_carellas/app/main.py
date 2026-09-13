@@ -1209,7 +1209,9 @@ def settings_page(message: str = ''):
     manager_checked = 'checked' if get_setting('manager_enabled', '0') == '1' else ''
     manager_url = manager_portal_url()
     manager_password_help = 'Lascia vuoto per conservare la password attuale.' if manager_configured else 'Crea una password di almeno 8 caratteri.'
-    ha_users, ha_users_error = discover_home_assistant_users()
+    # Nelle impostazioni serve sempre l'elenco attuale: un utente appena creato
+    # in Home Assistant deve comparire senza attendere la scadenza della cache.
+    ha_users, ha_users_error = discover_home_assistant_users(force=True)
     selected_ha_user = get_setting('ha_owner_user_id', '')
     selected_ha_name = get_setting('ha_owner_user_name', '')
     owner_users = [user for user in ha_users if not user['is_admin']]
