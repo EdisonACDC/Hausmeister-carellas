@@ -1,6 +1,6 @@
 FROM ghcr.io/home-assistant/base:latest
 
-ARG BUILD_VERSION=1.5.13
+ARG BUILD_VERSION=1.5.14
 ARG BUILD_ARCH
 
 LABEL \
@@ -13,7 +13,14 @@ LABEL \
 RUN apk add --no-cache python3 py3-pip
 WORKDIR /app
 COPY requirements.txt /app/requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages -r /app/requirements.txt
+RUN PIP_EXTRA_INDEX_URL= pip3 install \
+    --index-url https://pypi.org/simple \
+    --timeout 120 \
+    --retries 12 \
+    --resume-retries 12 \
+    --no-cache-dir \
+    --break-system-packages \
+    -r /app/requirements.txt
 COPY app /app/app
 RUN python3 -m py_compile /app/app/fix_maintenance_patch.py \
     && python3 /app/app/fix_maintenance_patch.py \
