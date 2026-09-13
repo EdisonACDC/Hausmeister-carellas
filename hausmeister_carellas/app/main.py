@@ -630,6 +630,35 @@ def remember_ingress_user(identity):
         set_setting('known_ha_users', json.dumps(users, ensure_ascii=False))
 
 
+def authorized_ha_users():
+    """Restituisce gli utenti HA autorizzati, migrando la vecchia selezione singola."""
+    raw = get_setting('ha_authorized_users', '')
+    try:
+        users = json.loads(raw) if raw else {}
+        if not isinstance(users, dict):
+            users = {}
+    except (TypeError, ValueError):
+        users = {}
+
+    # Compatibilita con le versioni fino alla 1.5.10: conserva automaticamente
+    # l'utente titolare gia abilitato quando si passa alla gestione multipla.
+    legacy_id = get_setting('ha_owner_user_id', '')
+    if get_setting('ha_owner_enabled', '0') == '1' and legacy_id and legacy_id not in users:
+        users[legacy_id] = get_setting('ha_owner_user_name', '') or legacy_id
+        set_setting('ha_authorized_users', json.dumps(users, ensure_ascii=False, sort_keys=True))
+    return {str(user_id): str(name or user_id) for user_id, name in users.items() if str(user_id).strip()}
+
+
+def save_authorized_ha_users(users):
+    """Salva l'elenco degli utenti HA autorizzati all'interfaccia titolare."""
+    clean = {str(user_id): str(name or user_id) for user_id, name in users.items() if str(user_id).strip()}
+    set_setting('ha_authorized_users', json.dumps(clean, ensure_ascii=False, sort_keys=True))
+    # Le vecchie chiavi non devono piu influire sulle autorizzazioni.
+    delete_setting('ha_owner_user_id')
+    delete_setting('ha_owner_user_name')
+    delete_setting('ha_owner_enabled')
+
+
 def manager_session_valid(request: Request):
     if get_setting('manager_enabled', '0') != '1':
         return False
@@ -964,12 +993,11 @@ async def ingress_role_guard(request: Request, call_next):
             'Esci e accedi nuovamente a Home Assistant, quindi riapri l’add-on dalla barra laterale.',
             403,
         )
-    selected_user = get_setting('ha_owner_user_id', '')
-    enabled = get_setting('ha_owner_enabled', '0') == '1'
-    if not enabled or not selected_user or not secrets.compare_digest(identity['id'], selected_user):
+    authorized_users = authorized_ha_users()
+    if not any(secrets.compare_digest(identity['id'], user_id) for user_id in authorized_users):
         return ingress_access_page(
             'Accesso non autorizzato',
-            f'L’utente Home Assistant “{identity["name"]}” non è selezionato come titolare nelle impostazioni dell’add-on.',
+            f'L’utente Home Assistant “{identity["name"]}” non è abilitato nelle impostazioni dell’add-on.',
             403,
         )
     if request.method != 'GET':
@@ -1171,20 +1199,23 @@ def save_manager_account(username: str = Form(...), password: str = Form(''), en
 
 
 @admin_app.post('/settings/ha-owner')
-def save_ha_owner(user_id: str = Form(''), enabled: str = Form('')):
+def save_ha_owner(user_id: str = Form(''), action: str = Form('')):
     user_id = user_id.strip()
     users, _ = discover_home_assistant_users(force=True)
     allowed = {user['id']: user for user in users if not user['is_admin']}
-    if user_id and user_id not in allowed:
+    authorized = authorized_ha_users()
+    if action == 'enable' and user_id not in allowed:
         return RedirectResponse('../settings?message=' + urllib.parse.quote('Seleziona un utente Home Assistant non amministratore valido.'), status_code=303)
-    if user_id:
-        set_setting('ha_owner_user_id', user_id)
-        set_setting('ha_owner_user_name', allowed[user_id]['name'])
+    if action == 'enable':
+        authorized[user_id] = allowed[user_id]['name']
+        message = f'Utente {allowed[user_id]["name"]} abilitato.'
+    elif action == 'disable' and user_id in authorized:
+        name = authorized.pop(user_id)
+        message = f'Utente {name} disabilitato.'
     else:
-        delete_setting('ha_owner_user_id')
-        delete_setting('ha_owner_user_name')
-    set_setting('ha_owner_enabled', '1' if enabled == '1' and user_id else '0')
-    return RedirectResponse('../settings?message=' + urllib.parse.quote('Accesso Home Assistant del titolare aggiornato.'), status_code=303)
+        return RedirectResponse('../settings?message=' + urllib.parse.quote('Operazione utente non valida.'), status_code=303)
+    save_authorized_ha_users(authorized)
+    return RedirectResponse('../settings?message=' + urllib.parse.quote(message), status_code=303)
 
 
 @admin_app.get('/settings', response_class=HTMLResponse)
@@ -1212,24 +1243,29 @@ def settings_page(message: str = ''):
     # Nelle impostazioni serve sempre l'elenco attuale: un utente appena creato
     # in Home Assistant deve comparire senza attendere la scadenza della cache.
     ha_users, ha_users_error = discover_home_assistant_users(force=True)
-    selected_ha_user = get_setting('ha_owner_user_id', '')
-    selected_ha_name = get_setting('ha_owner_user_name', '')
     owner_users = [user for user in ha_users if not user['is_admin']]
-    owner_user_options = '<option value="">Nessun utente selezionato</option>'
-    owner_user_options += ''.join(
-        f'<option value="{esc(user["id"])}" {"selected" if user["id"] == selected_ha_user else ""}>{esc(user["name"])} · {esc(user["id"])}</option>'
-        for user in owner_users
-    )
-    if selected_ha_user and not any(user['id'] == selected_ha_user for user in owner_users):
-        owner_user_options += f'<option value="{esc(selected_ha_user)}" selected>{esc(selected_ha_name or selected_ha_user)} · non rilevato</option>'
-    ha_owner_checked = 'checked' if get_setting('ha_owner_enabled', '0') == '1' else ''
+    authorized_users = authorized_ha_users()
+    current_user_ids = {user['id'] for user in owner_users}
+    ha_user_rows = ''
+    for user in owner_users:
+        is_enabled = user['id'] in authorized_users
+        action = 'disable' if is_enabled else 'enable'
+        button_label = 'Disabilita' if is_enabled else 'Abilita'
+        button_class = 'danger' if is_enabled else ''
+        status = '<span class="pill done">Abilitato</span>' if is_enabled else '<span class="pill">Disabilitato</span>'
+        ha_user_rows += f'''<tr><td><b>{esc(user['name'])}</b><br><span class="muted">{esc(user['id'])}</span></td><td>{status}</td><td><form method="post" action="settings/ha-owner"><input type="hidden" name="user_id" value="{esc(user['id'])}"><input type="hidden" name="action" value="{action}"><button type="submit" class="{button_class}">{button_label}</button></form></td></tr>'''
+    for user_id, name in authorized_users.items():
+        if user_id not in current_user_ids:
+            ha_user_rows += f'''<tr><td><b>{esc(name)}</b><br><span class="muted">{esc(user_id)} · non rilevato in Home Assistant</span></td><td><span class="pill done">Abilitato</span></td><td><form method="post" action="settings/ha-owner"><input type="hidden" name="user_id" value="{esc(user_id)}"><input type="hidden" name="action" value="disable"><button type="submit" class="danger">Disabilita</button></form></td></tr>'''
+    if not ha_user_rows:
+        ha_user_rows = '<tr><td colspan="3" class="muted">Nessun utente Home Assistant non amministratore disponibile.</td></tr>'
     ha_users_notice = (
         f'<div class="notice warning"><b>Diagnostica:</b> {esc(ha_users_error)} Apri almeno una volta Home Assistant con il nuovo utente e torna qui.</div>'
         if ha_users_error else f'<div class="notice">Utenti non amministratori disponibili: <b>{len(owner_users)}</b></div>'
     )
     translation = options.get('translation_url') or 'Automatica integrata (Google con MyMemory di riserva)'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/devices/discover"><button type="submit">⌕ Rileva dispositivi da Home Assistant</button></form><div class="notice" style="margin-top:12px"><b>Diagnostica rilevamento:</b><br>{esc(discovery_status)}</div><details><summary><b>Aggiunta manuale</b></summary><form method="post" action="settings/device" style="margin-top:12px"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></details></div>{device_cards}<div class="card span-12"><h2>Accesso Home Assistant del titolare</h2><p class="muted">Scegli l’utente Home Assistant non amministratore. Dalla barra laterale entrerà automaticamente nell’interfaccia titolare in sola lettura, senza una seconda password. Gli amministratori continueranno ad aprire l’interfaccia completa.</p>{ha_users_notice}<form method="post" action="settings/ha-owner"><label>Utente Home Assistant autorizzato</label><select name="user_id">{owner_user_options}</select><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {ha_owner_checked} style="width:auto;margin:0"> Mostra e abilita l’accesso del titolare</label><button type="submit">Salva utente titolare</button></form></div><div class="card span-12"><h2>Accesso del titolare esterno</h2><p class="muted">Portale separato da Home Assistant. Il titolare può gestire ticket, zone, QR e magazzino materiali. Impostazioni, PIN, telefoni e configurazioni tecniche restano riservati all’amministratore.</p><p><b>Indirizzo del portale:</b><br><a href="{esc(manager_url)}" target="_blank">{esc(manager_url)}</a></p><form method="post" action="settings/manager"><label>Nome utente del titolare</label><input name="username" value="{esc(manager_username)}" minlength="3" maxlength="80" autocomplete="username" required placeholder="Es. titolare"><label>Nuova password</label><input type="password" name="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="{esc(manager_password_help)}"><p class="muted">{esc(manager_password_help)} La password viene protetta e non può essere visualizzata: se viene dimenticata, puoi sostituirla qui.</p><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {manager_checked} style="width:auto;margin:0"> Portale Titolare attivo</label><button type="submit">Salva accesso titolare esterno</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
+    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/devices/discover"><button type="submit">⌕ Rileva dispositivi da Home Assistant</button></form><div class="notice" style="margin-top:12px"><b>Diagnostica rilevamento:</b><br>{esc(discovery_status)}</div><details><summary><b>Aggiunta manuale</b></summary><form method="post" action="settings/device" style="margin-top:12px"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></details></div>{device_cards}<div class="card span-12"><h2>Accesso degli utenti Home Assistant</h2><p class="muted">Abilita uno o più utenti Home Assistant non amministratori. Gli utenti abilitati apriranno dalla barra laterale l’interfaccia titolare in sola lettura; gli amministratori continueranno ad avere il controllo completo.</p>{ha_users_notice}<div class="table-wrap" style="margin-top:14px"><table><tr><th>Utente</th><th>Stato</th><th>Azione</th></tr>{ha_user_rows}</table></div></div><div class="card span-12"><h2>Accesso del titolare esterno</h2><p class="muted">Portale separato da Home Assistant. Il titolare può gestire ticket, zone, QR e magazzino materiali. Impostazioni, PIN, telefoni e configurazioni tecniche restano riservati all’amministratore.</p><p><b>Indirizzo del portale:</b><br><a href="{esc(manager_url)}" target="_blank">{esc(manager_url)}</a></p><form method="post" action="settings/manager"><label>Nome utente del titolare</label><input name="username" value="{esc(manager_username)}" minlength="3" maxlength="80" autocomplete="username" required placeholder="Es. titolare"><label>Nuova password</label><input type="password" name="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="{esc(manager_password_help)}"><p class="muted">{esc(manager_password_help)} La password viene protetta e non può essere visualizzata: se viene dimenticata, puoi sostituirla qui.</p><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {manager_checked} style="width:auto;margin:0"> Portale Titolare attivo</label><button type="submit">Salva accesso titolare esterno</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
 
 
 def owner_page(title: str, body: str):
