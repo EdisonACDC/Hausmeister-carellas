@@ -36,7 +36,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'}
-APP_VERSION = '1.5.14'
+APP_VERSION = '1.5.15'
 STATUSES = ('Nuovo', 'Preso in carico', 'In lavorazione', 'Da verificare', 'Risolto')
 PRIORITIES = ('Bassa', 'Normale', 'Alta', 'Urgente')
 PIN_ATTEMPTS = {}
@@ -721,16 +721,65 @@ def brand_logo():
 def qr_action_buttons(endpoint: str, element_id: str, filename: str, lang: str = 'it'):
     """Comandi QR compatibili con browser desktop e condivisione nativa mobile."""
     labels = {
-        'it': ('Dimensione stampa', 'Scarica PNG', 'Condividi / Salva', 'Stampa / PDF'),
-        'de': ('Druckgröße', 'PNG herunterladen', 'Teilen / Speichern', 'Drucken / PDF'),
-    }.get(lang, ('Dimensione stampa', 'Scarica PNG', 'Condividi / Salva', 'Stampa / PDF'))
-    size_label, download_label, share_label, print_label = labels
+        'it': ('Dimensione stampa', 'Scarica PNG', 'Condividi / Salva', 'Stampa / PDF', 'Nastro Brother', 'File Brother PT-E550W'),
+        'de': ('Druckgröße', 'PNG herunterladen', 'Teilen / Speichern', 'Drucken / PDF', 'Brother-Band', 'Datei für Brother PT-E550W'),
+    }.get(lang, ('Dimensione stampa', 'Scarica PNG', 'Condividi / Salva', 'Stampa / PDF', 'Nastro Brother', 'File Brother PT-E550W'))
+    size_label, download_label, share_label, print_label, brother_tape_label, brother_download_label = labels
     select_id = f'qr-size-{element_id}'
-    return f'''<div class="qr-tools"><label for="{esc(select_id)}">{esc(size_label)}</label><select id="{esc(select_id)}" class="qr-size-picker"><option value="5">5 cm</option><option value="7">7 cm</option><option value="10" selected>10 cm</option><option value="12">12 cm</option><option value="15">15 cm</option></select><div class="actions"><a class="btn" href="{esc(endpoint)}?download=1">⬇ {esc(download_label)}</a><button type="button" onclick="return shareQrFile('{esc(endpoint)}','{esc(filename)}')">⌁ {esc(share_label)}</button><button type="button" onclick="return printQrPdf('{esc(endpoint)}','{esc(select_id)}','{esc(Path(filename).stem)}.pdf')">▣ {esc(print_label)}</button></div></div>'''
+    brother_select_id = f'brother-tape-{element_id}'
+    return f'''<div class="qr-tools"><label for="{esc(select_id)}">{esc(size_label)}</label><select id="{esc(select_id)}" class="qr-size-picker"><option value="5">5 cm</option><option value="7">7 cm</option><option value="10" selected>10 cm</option><option value="12">12 cm</option><option value="15">15 cm</option></select><div class="actions"><a class="btn" href="{esc(endpoint)}?download=1">⬇ {esc(download_label)}</a><button type="button" onclick="return shareQrFile('{esc(endpoint)}','{esc(filename)}')">⌁ {esc(share_label)}</button><button type="button" onclick="return printQrPdf('{esc(endpoint)}','{esc(select_id)}','{esc(Path(filename).stem)}.pdf')">▣ {esc(print_label)}</button></div><div class="brother-tools"><label for="{esc(brother_select_id)}">{esc(brother_tape_label)}</label><select id="{esc(brother_select_id)}" class="qr-size-picker"><option value="12">12 mm</option><option value="18">18 mm</option><option value="24" selected>24 mm</option></select><button type="button" onclick="return downloadBrotherQr('{esc(endpoint)}','{esc(brother_select_id)}')">▣ {esc(brother_download_label)}</button></div></div>'''
 
 
-def qr_file_response(url: str, filename: str, download: int = 0, pdf: int = 0, size: int = 10):
+def brother_qr_response(url: str, filename: str, tape: int = 24):
+    """Crea un BMP monocromatico alla risoluzione nativa della Brother PT-E550W."""
+    tape_width = int(tape or 24)
+    printable_pixels = {12: 70, 18: 112, 24: 128}.get(tape_width)
+    if printable_pixels is None:
+        raise HTTPException(422, 'Nastro Brother non valido: usa 12, 18 oppure 24 mm')
+
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=1,
+        border=4,
+    )
+    qr.add_data(url)
+    qr.make(fit=True)
+    matrix = qr.get_matrix()
+    module_count = len(matrix)
+    if module_count > printable_pixels:
+        raise HTTPException(422, 'Il QR è troppo complesso per questo nastro: usa 18 o 24 mm')
+    scale = max(1, printable_pixels // module_count)
+    qr_pixels = module_count * scale
+    offset = (printable_pixels - qr_pixels) // 2
+    image = Image.new('1', (printable_pixels, printable_pixels), 1)
+    pixels = image.load()
+    for row_index, row in enumerate(matrix):
+        for column_index, dark in enumerate(row):
+            if not dark:
+                continue
+            x0 = offset + column_index * scale
+            y0 = offset + row_index * scale
+            for y in range(y0, y0 + scale):
+                for x in range(x0, x0 + scale):
+                    pixels[x, y] = 0
+
+    buffer = io.BytesIO()
+    image.save(buffer, format='BMP', dpi=(180, 180))
+    buffer.seek(0)
+    brother_filename = f'{Path(filename).stem}-brother-{tape_width}mm.bmp'
+    return StreamingResponse(buffer, media_type='image/bmp', headers={
+        'Content-Disposition': f'attachment; filename="{brother_filename}"',
+        'X-Content-Type-Options': 'nosniff',
+        'X-Brother-Model': 'PT-E550W',
+        'X-Brother-Tape-Width': f'{tape_width}mm',
+    })
+
+
+def qr_file_response(url: str, filename: str, download: int = 0, pdf: int = 0, size: int = 10, brother: int = 0, tape: int = 24):
     """Crea un PNG oppure un PDF A4 stampabile con QR di dimensione selezionata."""
+    if brother:
+        return brother_qr_response(url, filename, tape)
     qr = qrcode.make(url)
     if not pdf:
         buffer = io.BytesIO()
@@ -787,7 +836,7 @@ input,textarea,select{{width:100%;padding:13px 14px;margin:7px 0 15px;border:1px
 @media print{{@page{{margin:10mm}}body.qr-printing{{background:#fff}}body.qr-printing *{{visibility:hidden!important}}body.qr-printing img.qr{{visibility:visible!important;position:fixed;left:10mm;top:10mm;width:var(--qr-print-size,10cm)!important;height:var(--qr-print-size,10cm)!important;max-width:none!important;object-fit:contain}}}}
 @media(max-width:1000px){{.admin-shell{{grid-template-columns:1fr}}.sidebar{{height:auto;position:relative;padding:10px 12px;display:flex;align-items:center;gap:8px;overflow-x:auto}}.sidebar .brand-wrap{{min-width:155px;margin:0;padding:5px}}.sidebar .brand-logo{{width:145px}}.side-link{{white-space:nowrap;margin:0}}.side-foot{{display:none}}.span-3{{grid-column:span 6}}.span-4,.span-5,.span-6,.span-7,.span-8{{grid-column:span 12}}}}
 @media(max-width:640px){{.topbar{{padding:12px 14px}}.topbar h1{{font-size:20px}}.status-dot{{display:none}}main{{padding:12px}}.grid{{gap:10px}}.span-3,.span-4,.span-5,.span-6,.span-7,.span-8,.span-12{{grid-column:span 12}}.card{{padding:15px;border-radius:14px}}.metric strong{{font-size:24px}}.public-shell{{padding:14px}}.public-card{{padding:18px 15px}}.public-brand{{max-width:88%;width:270px}}.actions button,.actions .btn{{flex:1 1 140px}}.nav{{margin-bottom:8px}}.filters{{grid-template-columns:1fr}}.material-form-grid{{grid-template-columns:1fr}}.material-form-grid .full{{grid-column:auto}}.inventory-grid{{grid-template-columns:1fr}}}}
-</style><script>function adminGo(path){{const marker='/api/hassio_ingress/';const current=location.pathname;const start=current.indexOf(marker);if(start>=0){{const after=start+marker.length;const slash=current.indexOf('/',after);const base=slash>=0?current.slice(0,slash+1):current+'/';location.href=base+path;}}else{{location.href='/'+path;}}return false;}}function closePublicPage(){{window.close();setTimeout(function(){{if(!document.hidden&&history.length>1)history.back();}},180);}}function qrUrl(url,values){{const result=new URL(url,location.href);Object.keys(values).forEach(function(key){{result.searchParams.set(key,values[key]);}});return result.href;}}async function shareQrFile(url,filename){{const target=qrUrl(url,{{download:'0'}});try{{const response=await fetch(target,{{credentials:'same-origin'}});if(!response.ok)throw new Error('Download non riuscito');const blob=await response.blob();const file=new File([blob],filename,{{type:'image/png'}});if(navigator.share&&navigator.canShare&&navigator.canShare({{files:[file]}})){{await navigator.share({{files:[file],title:filename}});return false;}}}}catch(error){{if(error&&error.name==='AbortError')return false;}}window.open(target,'_blank');return false;}}async function printQrPdf(url,selectId,filename){{const select=document.getElementById(selectId);const size=Math.max(5,Math.min(15,Number(select&&select.value)||10));const target=qrUrl(url,{{pdf:'1',size:String(size),download:'0'}});const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent);if(isiOS&&navigator.share&&navigator.canShare){{try{{const response=await fetch(target,{{credentials:'same-origin'}});if(!response.ok)throw new Error('PDF non disponibile');const blob=await response.blob();const file=new File([blob],filename,{{type:'application/pdf'}});if(navigator.canShare({{files:[file]}})){{await navigator.share({{files:[file],title:filename}});return false;}}}}catch(error){{if(error&&error.name==='AbortError')return false;}}}}window.open(target,'_blank');return false;}}</script></head><body><div class="page {shell_class}">'''+(
+</style><script>function adminGo(path){{const marker='/api/hassio_ingress/';const current=location.pathname;const start=current.indexOf(marker);if(start>=0){{const after=start+marker.length;const slash=current.indexOf('/',after);const base=slash>=0?current.slice(0,slash+1):current+'/';location.href=base+path;}}else{{location.href='/'+path;}}return false;}}function closePublicPage(){{window.close();setTimeout(function(){{if(!document.hidden&&history.length>1)history.back();}},180);}}function qrUrl(url,values){{const result=new URL(url,location.href);Object.keys(values).forEach(function(key){{result.searchParams.set(key,values[key]);}});return result.href;}}function downloadBrotherQr(url,selectId){{const select=document.getElementById(selectId);const tape=[12,18,24].includes(Number(select&&select.value))?Number(select.value):24;location.href=qrUrl(url,{{brother:'1',tape:String(tape),download:'1'}});return false;}}async function shareQrFile(url,filename){{const target=qrUrl(url,{{download:'0'}});try{{const response=await fetch(target,{{credentials:'same-origin'}});if(!response.ok)throw new Error('Download non riuscito');const blob=await response.blob();const file=new File([blob],filename,{{type:'image/png'}});if(navigator.share&&navigator.canShare&&navigator.canShare({{files:[file]}})){{await navigator.share({{files:[file],title:filename}});return false;}}}}catch(error){{if(error&&error.name==='AbortError')return false;}}window.open(target,'_blank');return false;}}async function printQrPdf(url,selectId,filename){{const select=document.getElementById(selectId);const size=Math.max(5,Math.min(15,Number(select&&select.value)||10));const target=qrUrl(url,{{pdf:'1',size:String(size),download:'0'}});const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent);if(isiOS&&navigator.share&&navigator.canShare){{try{{const response=await fetch(target,{{credentials:'same-origin'}});if(!response.ok)throw new Error('PDF non disponibile');const blob=await response.blob();const file=new File([blob],filename,{{type:'application/pdf'}});if(navigator.canShare({{files:[file]}})){{await navigator.share({{files:[file],title:filename}});return false;}}}}catch(error){{if(error&&error.name==='AbortError')return false;}}}}window.open(target,'_blank');return false;}}</script></head><body><div class="page {shell_class}">'''+(
     f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="/manager">⌂ {manager_text(lang, 'dashboard')}</a><a class="side-link" href="/manager/tickets">☷ {manager_text(lang, 'tickets')}</a><a class="side-link" href="/manager/zones">⌖ {manager_text(lang, 'zones')}</a><a class="side-link" href="/manager/materials">▦ {manager_text(lang, 'materials')}</a><span class="side-link disabled" aria-disabled="true" title="{manager_text(lang, 'admin_only')}">⚙ {manager_text(lang, 'settings')}</span><a class="side-link" href="/manager/logout">⇥ {manager_text(lang, 'logout')}</a><div class="side-foot">{manager_text(lang, 'portal')}<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Carellas Ristorante</small></div><div class="status-dot">● {manager_text(lang, 'portal')}</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if manager else f'''<aside class="sidebar"><div class="brand-wrap">{brand_logo()}</div><a class="side-link" href="./" onclick="return adminGo('')">⌂ Dashboard</a><a class="side-link" href="tickets" onclick="return adminGo('tickets')">☷ Ticket</a><a class="side-link" href="zones" onclick="return adminGo('zones')">⌖ Zone / QR</a><a class="side-link" href="materials" onclick="return adminGo('materials')">▦ Magazzino materiali</a>{settings_link}<div class="side-foot">Hausmeister Carellas<br>v{APP_VERSION}</div></aside><div class="content"><header class="topbar"><div><h1>{esc(title)}</h1><small>Gestione manutenzioni Carellas</small></div><div class="status-dot">● {access_label}</div></header><main><div class="nav">{back}</div>{body}</main></div>''' if not public else f'''<div class="public-wrap"><div class="public-brand">{brand_logo()}</div><div class="nav">{back}</div>{body}</div>''')+'''</div></body></html>'''
 
 
@@ -1450,10 +1499,10 @@ def ha_owner_materials(q: str = ''):
 
 
 @admin_app.get('/settings/group-qr')
-def group_qr(download: int = 0, pdf: int = 0, size: int = 10):
+def group_qr(download: int = 0, pdf: int = 0, size: int = 10, brother: int = 0, tape: int = 24):
     if not get_setting('group_pin_hash'):
         raise HTTPException(409, 'Prima configura il PIN di gruppo')
-    return qr_file_response(group_public_url(), 'qr-tutte-le-zone.png', download, pdf, size)
+    return qr_file_response(group_public_url(), 'qr-tutte-le-zone.png', download, pdf, size, brother, tape)
 
 
 def validate_notification_device(name: str, service: str):
@@ -1614,14 +1663,14 @@ def zone_regenerate(zone_id: int):
 
 
 @admin_app.get('/zone/{zone_id}/qr')
-def zone_qr(zone_id: int, download: int = 0, pdf: int = 0, size: int = 10):
+def zone_qr(zone_id: int, download: int = 0, pdf: int = 0, size: int = 10, brother: int = 0, tape: int = 24):
     con = db()
     zone = con.execute('SELECT * FROM zones WHERE id=?', (zone_id,)).fetchone()
     con.close()
     if not zone:
         raise HTTPException(404)
     url = public_url_for(zone)
-    return qr_file_response(url, f'zona-{zone_id}.png', download, pdf, size)
+    return qr_file_response(url, f'zona-{zone_id}.png', download, pdf, size, brother, tape)
 
 
 @admin_app.get('/ticket/{ticket_id}', response_class=HTMLResponse)
@@ -2032,7 +2081,7 @@ def manager_zone_delete(request: Request, zone_id: int):
 
 
 @public_app.get('/manager/zone/{zone_id}/qr')
-def manager_zone_qr(request: Request, zone_id: int, download: int = 0, pdf: int = 0, size: int = 10):
+def manager_zone_qr(request: Request, zone_id: int, download: int = 0, pdf: int = 0, size: int = 10, brother: int = 0, tape: int = 24):
     if not manager_session_valid(request):
         return RedirectResponse('/manager/login', status_code=303)
     con = db()
@@ -2040,7 +2089,7 @@ def manager_zone_qr(request: Request, zone_id: int, download: int = 0, pdf: int 
     con.close()
     if not zone:
         raise HTTPException(404, 'Zona non trovata')
-    return qr_file_response(public_url_for(zone), f'zona-{zone_id}.png', download, pdf, size)
+    return qr_file_response(public_url_for(zone), f'zona-{zone_id}.png', download, pdf, size, brother, tape)
 
 
 @public_app.get('/manager/ticket/{ticket_id}', response_class=HTMLResponse)
