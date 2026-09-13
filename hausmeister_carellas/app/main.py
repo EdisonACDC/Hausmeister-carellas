@@ -2,6 +2,7 @@ import hashlib
 import html
 import io
 import json
+import os
 import secrets
 import sqlite3
 import time
@@ -18,6 +19,11 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from passlib.hash import argon2
+
+try:
+    import websocket
+except ImportError:  # La pagina impostazioni mostrerà una diagnostica chiara.
+    websocket = None
 
 DATA_DIR = Path('/data')
 UPLOAD_DIR = DATA_DIR / 'uploads'
@@ -521,6 +527,109 @@ def manager_portal_url():
     return f'{base}/manager/login' if base else '/manager/login'
 
 
+def ingress_identity(request: Request):
+    """Identità autenticata inserita dal proxy Ingress di Home Assistant."""
+    headers = request.headers
+    user_id = (
+        headers.get('X-Hass-User-ID')
+        or headers.get('X-Hass-User-Id')
+        or headers.get('X-Remote-User-ID')
+        or headers.get('X-Remote-User-Id')
+        or ''
+    ).strip()
+    username = (
+        headers.get('X-Remote-User-Display-Name')
+        or headers.get('X-Remote-User-Name')
+        or headers.get('X-Hass-Username')
+        or headers.get('X-Remote-User')
+        or ''
+    ).strip()
+    admin_value = (
+        headers.get('X-Hass-Is-Admin')
+        or headers.get('X-Remote-User-Is-Admin')
+        or headers.get('X-Remote-User-Admin')
+        or ''
+    ).strip().lower()
+    return {
+        'id': user_id,
+        'name': username or user_id,
+        'is_admin': admin_value in {'1', 'true', 'yes', 'on'},
+    }
+
+
+HA_USERS_CACHE = {'at': 0.0, 'users': [], 'error': ''}
+
+
+def discover_home_assistant_users(force: bool = False):
+    """Legge gli utenti reali tramite il WebSocket proxy di Home Assistant."""
+    now = time.monotonic()
+    if not force and now - HA_USERS_CACHE['at'] < 60:
+        return HA_USERS_CACHE['users'], HA_USERS_CACHE['error']
+    if websocket is None:
+        result = ([], 'Libreria WebSocket non disponibile.')
+        HA_USERS_CACHE.update(at=now, users=result[0], error=result[1])
+        return result
+    token = os.environ.get('SUPERVISOR_TOKEN', '')
+    if not token:
+        result = ([], 'Token Supervisor non disponibile.')
+        HA_USERS_CACHE.update(at=now, users=result[0], error=result[1])
+        return result
+    connection = None
+    try:
+        connection = websocket.create_connection('ws://supervisor/core/websocket', timeout=8)
+        hello = json.loads(connection.recv())
+        if hello.get('type') != 'auth_required':
+            raise RuntimeError('Risposta WebSocket inattesa')
+        connection.send(json.dumps({'type': 'auth', 'access_token': token}))
+        auth = json.loads(connection.recv())
+        if auth.get('type') != 'auth_ok':
+            raise PermissionError('Autenticazione Home Assistant non riuscita')
+        connection.send(json.dumps({'id': 1, 'type': 'config/auth/list'}))
+        result = json.loads(connection.recv())
+        if not result.get('success'):
+            raise PermissionError('Home Assistant non ha consentito la lettura degli utenti')
+        users = result.get('result') or []
+        normalized = []
+        for user in users:
+            if not isinstance(user, dict) or not user.get('id') or user.get('is_active') is False:
+                continue
+            groups = user.get('group_ids') or []
+            normalized.append({
+                'id': str(user['id']),
+                'name': str(user.get('name') or user['id']),
+                'is_admin': 'system-admin' in groups or bool(user.get('is_owner')),
+            })
+        normalized.sort(key=lambda item: item['name'].casefold())
+        HA_USERS_CACHE.update(at=now, users=normalized, error='')
+        return normalized, ''
+    except Exception as error:
+        message = f'Impossibile leggere gli utenti Home Assistant: {type(error).__name__}'
+        HA_USERS_CACHE.update(at=now, users=[], error=message)
+        return [], message
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+
+def remember_ingress_user(identity):
+    if not identity.get('id'):
+        return
+    raw = get_setting('known_ha_users', '{}')
+    try:
+        users = json.loads(raw)
+        if not isinstance(users, dict):
+            users = {}
+    except (TypeError, ValueError):
+        users = {}
+    current = {'name': identity.get('name') or identity['id'], 'is_admin': bool(identity.get('is_admin'))}
+    if users.get(identity['id']) != current:
+        users[identity['id']] = current
+        set_setting('known_ha_users', json.dumps(users, ensure_ascii=False))
+
+
 def manager_session_valid(request: Request):
     if get_setting('manager_enabled', '0') != '1':
         return False
@@ -818,6 +927,61 @@ async def admin_headers(request: Request, call_next):
     return response
 
 
+def ingress_access_page(title: str, message: str, status_code: int = 403):
+    content = page(title, f'''<div class="card" style="max-width:760px;margin:40px auto">
+      <h2>{esc(title)}</h2><p>{esc(message)}</p>
+      <p class="muted">L’accesso viene controllato tramite l’utente con cui hai effettuato il login in Home Assistant.</p>
+    </div>''', public=True)
+    return HTMLResponse(content, status_code=status_code)
+
+
+@admin_app.middleware('http')
+async def ingress_role_guard(request: Request, call_next):
+    identity = ingress_identity(request)
+    if not identity['id']:
+        return ingress_access_page(
+            'Identità Home Assistant non disponibile',
+            'Apri Hausmeister Carellas dalla barra laterale di Home Assistant. Non è consentito l’accesso diretto alla porta interna.',
+            401,
+        )
+    ha_users, ha_users_error = discover_home_assistant_users()
+    ha_user = next((user for user in ha_users if secrets.compare_digest(user['id'], identity['id'])), None)
+    if ha_user:
+        identity['name'] = ha_user['name']
+        identity['is_admin'] = bool(ha_user['is_admin'])
+    remember_ingress_user(identity)
+    if identity['is_admin']:
+        return await call_next(request)
+    if ha_users_error:
+        return ingress_access_page(
+            'Verifica utente non disponibile',
+            'Non riesco a verificare in sicurezza il ruolo dell’utente con Home Assistant. Riavvia l’add-on e riprova; l’accesso resta bloccato per proteggere le impostazioni.',
+            503,
+        )
+    if not ha_user:
+        return ingress_access_page(
+            'Utente Home Assistant non riconosciuto',
+            'Esci e accedi nuovamente a Home Assistant, quindi riapri l’add-on dalla barra laterale.',
+            403,
+        )
+    selected_user = get_setting('ha_owner_user_id', '')
+    enabled = get_setting('ha_owner_enabled', '0') == '1'
+    if not enabled or not selected_user or not secrets.compare_digest(identity['id'], selected_user):
+        return ingress_access_page(
+            'Accesso non autorizzato',
+            f'L’utente Home Assistant “{identity["name"]}” non è selezionato come titolare nelle impostazioni dell’add-on.',
+            403,
+        )
+    if request.method != 'GET':
+        return ingress_access_page('Operazione non consentita', 'L’interfaccia del titolare è disponibile soltanto in lettura.', 405)
+    if request.url.path == '/':
+        request.scope['path'] = '/owner'
+        request.scope['raw_path'] = b'/owner'
+    elif not request.url.path.startswith('/owner'):
+        return ingress_access_page('Operazione non consentita', 'Questa funzione è riservata all’amministratore.', 403)
+    return await call_next(request)
+
+
 @public_app.middleware('http')
 async def public_headers(request: Request, call_next):
     response = await call_next(request)
@@ -1006,6 +1170,23 @@ def save_manager_account(username: str = Form(...), password: str = Form(''), en
     return RedirectResponse('../settings?message=' + urllib.parse.quote('Accesso del titolare aggiornato correttamente.'), status_code=303)
 
 
+@admin_app.post('/settings/ha-owner')
+def save_ha_owner(user_id: str = Form(''), enabled: str = Form('')):
+    user_id = user_id.strip()
+    users, _ = discover_home_assistant_users(force=True)
+    allowed = {user['id']: user for user in users if not user['is_admin']}
+    if user_id and user_id not in allowed:
+        return RedirectResponse('../settings?message=' + urllib.parse.quote('Seleziona un utente Home Assistant non amministratore valido.'), status_code=303)
+    if user_id:
+        set_setting('ha_owner_user_id', user_id)
+        set_setting('ha_owner_user_name', allowed[user_id]['name'])
+    else:
+        delete_setting('ha_owner_user_id')
+        delete_setting('ha_owner_user_name')
+    set_setting('ha_owner_enabled', '1' if enabled == '1' and user_id else '0')
+    return RedirectResponse('../settings?message=' + urllib.parse.quote('Accesso Home Assistant del titolare aggiornato.'), status_code=303)
+
+
 @admin_app.get('/settings', response_class=HTMLResponse)
 def settings_page(message: str = ''):
     options = load_options()
@@ -1028,9 +1209,143 @@ def settings_page(message: str = ''):
     manager_checked = 'checked' if get_setting('manager_enabled', '0') == '1' else ''
     manager_url = manager_portal_url()
     manager_password_help = 'Lascia vuoto per conservare la password attuale.' if manager_configured else 'Crea una password di almeno 8 caratteri.'
+    ha_users, ha_users_error = discover_home_assistant_users()
+    selected_ha_user = get_setting('ha_owner_user_id', '')
+    selected_ha_name = get_setting('ha_owner_user_name', '')
+    owner_users = [user for user in ha_users if not user['is_admin']]
+    owner_user_options = '<option value="">Nessun utente selezionato</option>'
+    owner_user_options += ''.join(
+        f'<option value="{esc(user["id"])}" {"selected" if user["id"] == selected_ha_user else ""}>{esc(user["name"])} · {esc(user["id"])}</option>'
+        for user in owner_users
+    )
+    if selected_ha_user and not any(user['id'] == selected_ha_user for user in owner_users):
+        owner_user_options += f'<option value="{esc(selected_ha_user)}" selected>{esc(selected_ha_name or selected_ha_user)} · non rilevato</option>'
+    ha_owner_checked = 'checked' if get_setting('ha_owner_enabled', '0') == '1' else ''
+    ha_users_notice = (
+        f'<div class="notice warning"><b>Diagnostica:</b> {esc(ha_users_error)} Apri almeno una volta Home Assistant con il nuovo utente e torna qui.</div>'
+        if ha_users_error else f'<div class="notice">Utenti non amministratori disponibili: <b>{len(owner_users)}</b></div>'
+    )
     translation = options.get('translation_url') or 'Automatica integrata (Google con MyMemory di riserva)'
     notice = f'<div class="notice">{esc(message)}</div>' if message else ''
-    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/devices/discover"><button type="submit">⌕ Rileva dispositivi da Home Assistant</button></form><div class="notice" style="margin-top:12px"><b>Diagnostica rilevamento:</b><br>{esc(discovery_status)}</div><details><summary><b>Aggiunta manuale</b></summary><form method="post" action="settings/device" style="margin-top:12px"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></details></div>{device_cards}<div class="card span-12"><h2>Accesso del titolare</h2><p class="muted">Portale separato da Home Assistant. Il titolare può gestire ticket, zone, QR e magazzino materiali. Impostazioni, PIN, telefoni e configurazioni tecniche restano riservati all’amministratore.</p><p><b>Indirizzo del portale:</b><br><a href="{esc(manager_url)}" target="_blank">{esc(manager_url)}</a></p><form method="post" action="settings/manager"><label>Nome utente del titolare</label><input name="username" value="{esc(manager_username)}" minlength="3" maxlength="80" autocomplete="username" required placeholder="Es. titolare"><label>Nuova password</label><input type="password" name="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="{esc(manager_password_help)}"><p class="muted">{esc(manager_password_help)} La password viene protetta e non può essere visualizzata: se viene dimenticata, puoi sostituirla qui.</p><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {manager_checked} style="width:auto;margin:0"> Portale Titolare attivo</label><button type="submit">Salva accesso titolare</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
+    return page('Impostazioni', f'''{notice}<div class="grid"><div class="card span-6"><h2>Password zone singole</h2><p class="muted">Usata dai QR che aprono direttamente una zona.</p><form method="post" action="pin"><label>Password salvata</label><input type="text" name="pin" value="{esc(pin_plain)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Inserisci nuovamente la password"><button>Salva password zone</button></form>{f'<div class="notice warning">{esc(pin_hint)}</div>' if pin_hint else ''}</div><div class="card span-6"><h2>Password QR di gruppo</h2><p class="muted">È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.</p><form method="post" action="settings/group-pin"><label>Password di gruppo salvata</label><input type="text" name="pin" value="{esc(group_pin)}" minlength="6" maxlength="64" autocomplete="off" autocapitalize="none" required placeholder="Crea la password di gruppo"><button>Salva password di gruppo</button></form></div><div class="card span-6"><h2>QR con tutte le zone</h2><p><a href="{esc(group_url)}" target="_blank">{esc(group_url)}</a></p>{'<img class="qr" src="settings/group-qr">' if group_pin else '<div class="notice warning">Prima salva la password di gruppo.</div>'}<div class="actions" style="margin-top:12px">{f'<a class="btn" href="settings/group-qr?download=1">Scarica QR di gruppo</a>' if group_pin else ''}</div></div><div class="card span-6"><h2>Configurazione</h2><p><b>URL pubblico:</b><br>{esc(base)}</p><p><b>Traduzione automatica:</b><br>{esc(translation)}</p><p class="muted">URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.</p></div><div class="card span-12"><h2>Dispositivi per le notifiche</h2><p class="muted">I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.</p><form method="post" action="settings/devices/discover"><button type="submit">⌕ Rileva dispositivi da Home Assistant</button></form><div class="notice" style="margin-top:12px"><b>Diagnostica rilevamento:</b><br>{esc(discovery_status)}</div><details><summary><b>Aggiunta manuale</b></summary><form method="post" action="settings/device" style="margin-top:12px"><div class="filters"><div><label>Nome dispositivo</label><input name="name" maxlength="80" placeholder="Es. iPhone Marius" required></div><div><label>Entità/azione</label><input name="service" maxlength="120" placeholder="mobile_app_iphone_marius" required></div><button type="submit">Aggiungi dispositivo</button></div></form></details></div>{device_cards}<div class="card span-12"><h2>Accesso Home Assistant del titolare</h2><p class="muted">Scegli l’utente Home Assistant non amministratore. Dalla barra laterale entrerà automaticamente nell’interfaccia titolare in sola lettura, senza una seconda password. Gli amministratori continueranno ad aprire l’interfaccia completa.</p>{ha_users_notice}<form method="post" action="settings/ha-owner"><label>Utente Home Assistant autorizzato</label><select name="user_id">{owner_user_options}</select><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {ha_owner_checked} style="width:auto;margin:0"> Mostra e abilita l’accesso del titolare</label><button type="submit">Salva utente titolare</button></form></div><div class="card span-12"><h2>Accesso del titolare esterno</h2><p class="muted">Portale separato da Home Assistant. Il titolare può gestire ticket, zone, QR e magazzino materiali. Impostazioni, PIN, telefoni e configurazioni tecniche restano riservati all’amministratore.</p><p><b>Indirizzo del portale:</b><br><a href="{esc(manager_url)}" target="_blank">{esc(manager_url)}</a></p><form method="post" action="settings/manager"><label>Nome utente del titolare</label><input name="username" value="{esc(manager_username)}" minlength="3" maxlength="80" autocomplete="username" required placeholder="Es. titolare"><label>Nuova password</label><input type="password" name="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="{esc(manager_password_help)}"><p class="muted">{esc(manager_password_help)} La password viene protetta e non può essere visualizzata: se viene dimenticata, puoi sostituirla qui.</p><label style="display:flex;align-items:center;gap:9px;margin-bottom:15px"><input type="checkbox" name="enabled" value="1" {manager_checked} style="width:auto;margin:0"> Portale Titolare attivo</label><button type="submit">Salva accesso titolare esterno</button></form></div><div class="card span-12"><h2>Backup</h2><p>Scarica database e fotografie in un unico archivio ZIP.</p><a class="btn" href="settings/backup">Scarica backup</a></div></div>''')
+
+
+def owner_page(title: str, body: str):
+    """Interfaccia Ingress del titolare: stessa grafica, nessun comando di modifica."""
+    output = page(title, body, manager=True, lang='it')
+    replacements = (
+        ('href="/manager/tickets"', 'href="owner/tickets" onclick="return adminGo(\'owner/tickets\')"'),
+        ('href="/manager/zones"', 'href="owner/zones" onclick="return adminGo(\'owner/zones\')"'),
+        ('href="/manager/materials"', 'href="owner/materials" onclick="return adminGo(\'owner/materials\')"'),
+        ('<a class="side-link" href="/manager/logout">⇥ Esci</a>', '<a class="side-link" href="/" onclick="try{window.top.location.href=\'/\'}catch(e){location.href=\'/\'};return false">⇥ Home Assistant</a>'),
+        ('href="/manager"', 'href="owner" onclick="return adminGo(\'owner\')"'),
+    )
+    for old, new in replacements:
+        output = output.replace(old, new)
+    output = output.replace('Portale titolare', 'Titolare · sola lettura')
+    return output
+
+
+def owner_go(path: str, label: str, css: str = ''):
+    class_name = f'btn {css}'.strip()
+    return f'<a class="{class_name}" href="{esc(path)}" onclick="return adminGo(\'{esc(path)}\')">{esc(label)}</a>'
+
+
+@admin_app.get('/owner', response_class=HTMLResponse)
+def ha_owner_home():
+    con = db()
+    counts = {row['status']: row['n'] for row in con.execute('SELECT status,COUNT(*) n FROM tickets GROUP BY status').fetchall()}
+    total = con.execute('SELECT COUNT(*) n FROM tickets').fetchone()['n']
+    low = con.execute('SELECT COUNT(*) n FROM materials WHERE quantity<=reorder_level').fetchone()['n']
+    tickets = con.execute('SELECT t.*,z.name zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id ORDER BY t.id DESC LIMIT 12').fetchall()
+    con.close()
+    rows = ''.join(
+        f'<tr class="{ticket_priority_class(ticket)}"><td><a href="owner/ticket/{ticket["id"]}" onclick="return adminGo(\'owner/ticket/{ticket["id"]}\')"><b>{esc(ticket["ticket_code"])}</b></a></td><td>{esc(ticket["zone_name"])}</td><td>{priority_dot(ticket)}{esc(ticket["priority"] or "Normale")}</td><td><span class="pill {"done" if ticket["status"] == "Risolto" else "open"}">{esc(ticket["status"])}</span></td></tr>'
+        for ticket in tickets
+    ) or '<tr><td colspan="4">Nessun ticket</td></tr>'
+    body = f'''<div class="notice"><b>Interfaccia titolare in sola lettura.</b> Le modifiche sono riservate all’amministratore.</div><div class="grid">
+      <div class="card span-3"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">Ticket totali</span><strong>{total}</strong></div></div></div>
+      <div class="card span-3"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">Nuovi</span><strong>{counts.get('Nuovo', 0)}</strong></div></div></div>
+      <div class="card span-3"><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">In lavorazione</span><strong>{counts.get('In lavorazione', 0)}</strong></div></div></div>
+      <div class="card span-3"><div class="metric"><div class="metric-icon">⚠</div><div><span class="muted">Scorte basse</span><strong>{low}</strong></div></div></div>
+      <div class="card span-12"><h2>Ticket recenti</h2><div class="table-wrap"><table><tr><th>ID</th><th>Zona</th><th>Priorità</th><th>Stato</th></tr>{rows}</table></div></div>
+    </div>'''
+    return owner_page('Dashboard titolare', body)
+
+
+@admin_app.get('/owner/tickets', response_class=HTMLResponse)
+def ha_owner_tickets(q: str = '', status: str = ''):
+    con = db()
+    sql = 'SELECT t.*,z.name zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id WHERE 1=1'
+    params = []
+    if q.strip():
+        sql += ' AND (t.ticket_code LIKE ? OR z.name LIKE ? OR t.reporter_name LIKE ? OR t.description_original LIKE ?)'
+        value = f'%{q.strip()}%'
+        params.extend([value, value, value, value])
+    if status in STATUSES:
+        sql += ' AND t.status=?'
+        params.append(status)
+    tickets = con.execute(sql + ' ORDER BY t.id DESC LIMIT 300', params).fetchall()
+    con.close()
+    rows = ''.join(
+        f'<tr class="{ticket_priority_class(ticket)}"><td><a href="owner/ticket/{ticket["id"]}" onclick="return adminGo(\'owner/ticket/{ticket["id"]}\')"><b>{esc(ticket["ticket_code"])}</b></a></td><td>{esc(ticket["zone_name"])}</td><td>{esc(ticket["reporter_name"])}</td><td>{priority_dot(ticket)}{esc(ticket["priority"] or "Normale")}</td><td>{esc(ticket["status"])}</td></tr>'
+        for ticket in tickets
+    ) or '<tr><td colspan="5">Nessun ticket trovato</td></tr>'
+    options = '<option value="">Tutti gli stati</option>' + ''.join(f'<option value="{esc(value)}" {"selected" if value == status else ""}>{esc(value)}</option>' for value in STATUSES)
+    return owner_page('Ticket', f'''<div class="card"><form class="filters" method="get"><div><label>Cerca</label><input name="q" value="{esc(q)}" placeholder="Codice, zona, nome o descrizione"></div><div><label>Stato</label><select name="status">{options}</select></div><button>Cerca</button></form><div class="table-wrap" style="margin-top:14px"><table><tr><th>ID</th><th>Zona</th><th>Segnalato da</th><th>Priorità</th><th>Stato</th></tr>{rows}</table></div></div>''')
+
+
+@admin_app.get('/owner/ticket/{ticket_id}', response_class=HTMLResponse)
+def ha_owner_ticket(ticket_id: int):
+    con = db()
+    ticket = con.execute('SELECT t.*,z.name zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id WHERE t.id=?', (ticket_id,)).fetchone()
+    files = con.execute('SELECT * FROM ticket_files WHERE ticket_id=? ORDER BY id', (ticket_id,)).fetchall()
+    con.close()
+    if not ticket:
+        raise HTTPException(404, 'Ticket non trovato')
+    photos = ''.join(
+        f'<a href="{ticket_id}/file/{file["id"]}" target="_blank"><img src="{ticket_id}/file/{file["id"]}"></a>'
+        for file in files
+    ) or '<p class="muted">Nessuna fotografia</p>'
+    body = f'''<div class="notice"><b>Sola lettura:</b> stato, priorità e note possono essere modificati soltanto dall’amministratore.</div><div class="grid"><div class="card span-7"><h2>{esc(ticket['ticket_code'])}</h2><p><b>Zona:</b> {esc(ticket['zone_name'])}</p><p><b>Segnalato da:</b> {esc(ticket['reporter_name'])}</p><p><b>Categoria:</b> {esc(ticket['category'])}</p><p><b>Priorità:</b> {priority_dot(ticket)}{esc(ticket['priority'] or 'Normale')}</p><p><b>Stato:</b> {esc(ticket['status'])}</p><h3>Descrizione</h3><p style="white-space:pre-wrap">{esc(ticket['description_original'])}</p><h3>Note / soluzione</h3><p style="white-space:pre-wrap">{esc(ticket['resolution_notes'] or '—')}</p></div><div class="card span-5"><h2>Fotografie</h2><div class="photos">{photos}</div></div></div>'''
+    return owner_page(f'Ticket {ticket["ticket_code"]}', body)
+
+
+@admin_app.get('/owner/ticket/{ticket_id}/file/{file_id}')
+def ha_owner_ticket_file(ticket_id: int, file_id: int):
+    con = db()
+    item = con.execute('SELECT * FROM ticket_files WHERE id=? AND ticket_id=?', (file_id, ticket_id)).fetchone()
+    con.close()
+    if not item:
+        raise HTTPException(404)
+    path = (UPLOAD_DIR / item['stored_name']).resolve()
+    if path.parent != UPLOAD_DIR.resolve() or not path.is_file():
+        raise HTTPException(404)
+    return FileResponse(path, media_type=item['content_type'], filename=Path(item['original_name']).name, content_disposition_type='inline')
+
+
+@admin_app.get('/owner/zones', response_class=HTMLResponse)
+def ha_owner_zones():
+    con = db()
+    zones = con.execute('SELECT z.*,COUNT(t.id) ticket_count FROM zones z LEFT JOIN tickets t ON t.zone_id=z.id GROUP BY z.id ORDER BY z.name').fetchall()
+    con.close()
+    cards = ''.join(f'<div class="card"><h2>{esc(zone["name"])}</h2><p><span class="pill {"open" if zone["active"] else "done"}">{"Attiva" if zone["active"] else "Disattivata"}</span></p><p>Ticket collegati: <b>{zone["ticket_count"]}</b></p></div>' for zone in zones) or '<div class="card">Nessuna zona</div>'
+    return owner_page('Zone', f'<div class="inventory-grid">{cards}</div>')
+
+
+@admin_app.get('/owner/materials', response_class=HTMLResponse)
+def ha_owner_materials(q: str = ''):
+    con = db()
+    params = []
+    sql = 'SELECT * FROM materials'
+    if q.strip():
+        sql += ' WHERE name LIKE ? OR code LIKE ? OR category LIKE ?'
+        value = f'%{q.strip()}%'
+        params = [value, value, value]
+    materials = con.execute(sql + ' ORDER BY name', params).fetchall()
+    con.close()
+    cards = ''.join(f'''<div class="card material-card {"low" if item["quantity"] <= item["reorder_level"] else ""}"><h2>{esc(item['name'])}</h2><p class="muted">{esc(item['code'])} · {esc(item['category'])}</p><p><span class="stock-number">{item['quantity']}</span> {esc(item['unit'])}</p><span class="stock-badge {"low" if item["quantity"] <= item["reorder_level"] else ""}">{"⚠ Da acquistare" if item["quantity"] <= item["reorder_level"] else "✓ Scorta disponibile"}</span><p>{esc(item['description'])}</p></div>''' for item in materials) or '<div class="card">Nessun materiale</div>'
+    return owner_page('Magazzino materiali', f'''<div class="card"><form class="filters" method="get"><div><label>Cerca materiale</label><input name="q" value="{esc(q)}" placeholder="Nome, codice o categoria"></div><button>Cerca</button></form></div><div class="inventory-grid">{cards}</div>''')
 
 
 @admin_app.get('/settings/group-qr')

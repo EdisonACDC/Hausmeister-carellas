@@ -1,5 +1,5 @@
 name: Hausmeister Carellas
-version: "1.5.8"
+version: "1.5.9"
 slug: hausmeister_carellas
 description: Gestione segnalazioni di manutenzione con zone, QR code e portale pubblico
 url: https://github.com/EdisonACDC/Hausmeister-carellas
@@ -13,6 +13,7 @@ ingress: true
 ingress_port: 8099
 panel_icon: mdi:tools
 panel_title: Hausmeister Carellas
+panel_admin: false
 homeassistant_api: true
 ports:
   8080/tcp: null

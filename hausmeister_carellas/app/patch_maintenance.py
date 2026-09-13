@@ -27,7 +27,7 @@ if admin_old in text and "adminGo('maintenances')" not in text:
 
 route_marker = "@admin_app.get('/materials', response_class=HTMLResponse)"
 if "@admin_app.get('/maintenances'" not in text:
-    routes = r'''
+    routes = r"""
 MAINTENANCE_TYPES = ('Ordinaria', 'Straordinaria')
 MAINTENANCE_STATUSES = ('Pianificata', 'Da fare', 'In lavorazione', 'Completata', 'Annullata')
 MAINTENANCE_CATEGORIES = ('Elettrico', 'Idraulico', 'Muratore', 'Climatizzazione', 'Porta/Finestra', 'Attrezzatura cucina', 'Pulizia', 'Sicurezza', 'Altro')
@@ -172,7 +172,7 @@ def manager_maintenance_delete(request:Request,item_id:int):
     return RedirectResponse('/manager/maintenances?message='+urllib.parse.quote('Manutenzione eliminata.'), status_code=303)
 
 
-'''
+"""
     if route_marker not in text:
         raise SystemExit('Maintenance route marker not found')
     text = text.replace(route_marker, routes + route_marker, 1)
