@@ -32,6 +32,7 @@ RUN python3 -m py_compile /app/app/fix_maintenance_patch.py \
     && python3 /app/app/patch_backup.py \
     && python3 /app/app/patch_smart_inventory.py \
     && python3 /app/app/patch_ios_photos.py \
+    && python3 /app/app/patch_qr_bulk_fast_ticket.py \
     && python3 -m py_compile /app/app/main.py /app/app/ha_sensor_publisher.py
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
