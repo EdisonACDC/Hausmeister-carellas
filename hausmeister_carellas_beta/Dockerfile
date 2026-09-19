@@ -1,6 +1,6 @@
 FROM ghcr.io/home-assistant/base:latest
 
-ARG BUILD_VERSION=1.4.0-beta.34
+ARG BUILD_VERSION=1.4.0-beta.35
 ARG BUILD_ARCH
 
 LABEL \
@@ -18,6 +18,7 @@ COPY app /app/app
 RUN python3 -m py_compile /app/app/fix_maintenance_patch.py \
     && python3 /app/app/fix_maintenance_patch.py \
     && python3 -m py_compile /app/app/patch_zone_groups.py /app/app/patch_whatsapp.py /app/app/patch_whatsapp_direct.py /app/app/patch_maintenance.py /app/app/patch_backup.py /app/app/patch_smart_inventory.py \
+    && python3 /app/app/patch_qr_bulk_fast_ticket.py \
     && python3 /app/app/patch_zone_groups.py \
     && python3 /app/app/patch_whatsapp.py \
     && python3 /app/app/patch_whatsapp_direct.py \
