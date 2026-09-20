@@ -64,7 +64,7 @@ def qr_export_settings():
       <script>
       async function qrDownload(url, filename) {{
         const response = await fetch(url, {{credentials:'same-origin'}});
-        if (!response.ok) { alert('Errore download QR'); return; }
+        if (!response.ok) {{ alert('Errore download QR'); return; }}
         const blob = await response.blob();
         const objectUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
