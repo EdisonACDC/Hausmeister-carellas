@@ -29,7 +29,7 @@ if 'settings/qr-export' not in text and backup_card in text:
 # 3) Route per esportazione massiva QR.
 route_marker = "@admin_app.get('/tickets', response_class=HTMLResponse)"
 if "@admin_app.get('/settings/qr-export'" not in text:
-    routes = r'''
+    routes = r'''\nimport io\nimport zipfile\nfrom fastapi.responses import StreamingResponse
 def _qr_safe_name(value):
     import re
     name = re.sub(r'[^A-Za-z0-9._-]+', '_', str(value or '').strip()).strip('._')
