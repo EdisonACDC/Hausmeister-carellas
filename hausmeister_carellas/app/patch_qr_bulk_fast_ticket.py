@@ -57,10 +57,22 @@ def qr_export_settings():
       <h2>▣ QR Zone</h2>
       <p><b>{count}</b> zone trovate. Gli export vengono creati al momento, quindi comprendono automaticamente anche le zone aggiunte in futuro.</p>
       <div class="actions" style="display:flex;gap:10px;flex-wrap:wrap">
-        <a class="btn" href="qr-export/png">📱 ZIP · PNG separati</a>
-        <a class="btn" href="qr-export/pdf">📄 ZIP · PDF separati</a>
-        <a class="btn" href="qr-export/pdf-unico">🖨 PDF unico</a>
+        <button class="btn" type="button" onclick="qrDownload('qr-export/png','QR_Zone_PNG.zip')">📱 ZIP · PNG separati</button>
+        <button class="btn" type="button" onclick="qrDownload('qr-export/pdf','QR_Zone_PDF.zip')">📄 ZIP · PDF separati</button>
+        <button class="btn" type="button" onclick="qrDownload('qr-export/pdf-unico','QR_Tutte_Le_Zone.pdf')">🖨 PDF unico</button>
       </div>
+      <script>
+      async function qrDownload(url, filename) {
+        const response = await fetch(url, {credentials:'same-origin'});
+        if (!response.ok) { alert('Errore download QR'); return; }
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+      }
+      </script>
       <p class="muted" style="margin-top:14px">Per Brother da iPhone usa <b>ZIP · PNG separati</b>: ogni zona viene salvata come immagine PNG indipendente.</p>
     </div>
     """
