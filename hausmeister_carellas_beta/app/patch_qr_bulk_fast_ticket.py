@@ -62,8 +62,8 @@ def qr_export_settings():
         <button class="btn" type="button" onclick="qrDownload('qr-export/pdf-unico','QR_Tutte_Le_Zone.pdf')">🖨 PDF unico</button>
       </div>
       <script>
-      async function qrDownload(url, filename) {
-        const response = await fetch(url, {credentials:'same-origin'});
+      async function qrDownload(url, filename) {{
+        const response = await fetch(url, {{credentials:'same-origin'}});
         if (!response.ok) { alert('Errore download QR'); return; }
         const blob = await response.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -71,7 +71,7 @@ def qr_export_settings():
         a.href = objectUrl; a.download = filename;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
-      }
+      }}
       </script>
       <p class="muted" style="margin-top:14px">Per Brother da iPhone usa <b>ZIP · PNG separati</b>: ogni zona viene salvata come immagine PNG indipendente.</p>
     </div>
