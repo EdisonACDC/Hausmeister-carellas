@@ -119,3 +119,59 @@ if page_marker in text and "hm_user_lang" not in text[text.find("def page("):tex
 path.write_text(text,encoding='utf-8')
 
 # Prefer locale hints forwarded by the Home Assistant session.\nold = "    cookie_lang = (request.cookies.get('hm_user_lang') or '').lower()\\n    if cookie_lang in ('it','de','ro'):\\n        return cookie_lang\\n"\nnew = "    header_lang = (request.headers.get('X-Hass-Language') or request.headers.get('X-Hass-Locale') or '').lower()\\n    if header_lang.startswith('de'):\\n        return 'de'\\n    if header_lang.startswith('ro'):\\n        return 'ro'\\n    if header_lang.startswith('it'):\\n        return 'it'\\n    cookie_lang = (request.cookies.get('hm_user_lang') or '').lower()\\n    if cookie_lang in ('it','de','ro'):\\n        return cookie_lang\\n"\nif old in text:\n    text=text.replace(old,new,1)\npath.write_text(text,encoding='utf-8')\n
+
+# Per-user language bridge: the HA frontend can pass its current hass.language
+# in the query string once; we store it only in that browser session cookie.
+old_public_lang = """def public_language(request: Request):
+    header_lang = (request.headers.get('X-Hass-Language') or request.headers.get('X-Hass-Locale') or '').lower()
+    if header_lang.startswith('de'):
+        return 'de'
+    if header_lang.startswith('ro'):
+        return 'ro'
+    if header_lang.startswith('it'):
+        return 'it'
+    cookie_lang = (request.cookies.get('hm_user_lang') or '').lower()
+    if cookie_lang in ('it','de','ro'):
+        return cookie_lang
+    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()
+    if preferred.startswith('de'):
+        return 'de'
+    if preferred.startswith('ro'):
+        return 'ro'
+    return 'it'
+"""
+new_public_lang = """def public_language(request: Request):
+    requested = (request.query_params.get('ha_lang') or '').lower().replace('_','-')
+    if requested.startswith('de'):
+        return 'de'
+    if requested.startswith('ro'):
+        return 'ro'
+    if requested.startswith('it'):
+        return 'it'
+    cookie_lang = (request.cookies.get('hm_user_lang') or '').lower()
+    if cookie_lang in ('it','de','ro'):
+        return cookie_lang
+    header_lang = (request.headers.get('X-Hass-Language') or request.headers.get('X-Hass-Locale') or '').lower()
+    if header_lang.startswith('de'):
+        return 'de'
+    if header_lang.startswith('ro'):
+        return 'ro'
+    if header_lang.startswith('it'):
+        return 'it'
+    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()
+    if preferred.startswith('de'):
+        return 'de'
+    if preferred.startswith('ro'):
+        return 'ro'
+    return 'it'
+"""
+if old_public_lang in text:
+    text = text.replace(old_public_lang,new_public_lang,1)
+
+# Do not force navigator.language over a language already selected for this HA user.
+old_sync = "var l=(navigator.language||navigator.userLanguage||'it').toLowerCase().split('-')[0];"
+new_sync = "var p=new URLSearchParams(location.search);var l=(p.get('ha_lang')||'').toLowerCase().split('-')[0];if(!l){var m=document.cookie.match(/(?:^|; )hm_user_lang=([^;]+)/);l=m?decodeURIComponent(m[1]):'';}if(!l){l=(navigator.language||navigator.userLanguage||'it').toLowerCase().split('-')[0];}"
+if old_sync in text:
+    text = text.replace(old_sync,new_sync,1)
+
+path.write_text(text,encoding='utf-8')
