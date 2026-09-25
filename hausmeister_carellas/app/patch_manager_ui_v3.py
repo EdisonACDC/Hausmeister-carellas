@@ -7,7 +7,7 @@ text = path.read_text(encoding='utf-8')
 # data-language buttons + localStorage + client-side dictionary + MutationObserver.
 
 # Keep displayed version aligned.
-text = text.replace("APP_VERSION = '1.5.16'", "APP_VERSION = '1.5.42'", 1)
+text = text.replace("APP_VERSION = '1.5.16'", "APP_VERSION = '1.5.43'", 1)
 
 # Make dashboard metric cards clickable without changing the working tickets route.
 metric_replacements = {
@@ -53,6 +53,62 @@ async def hm_user_context(request: Request, call_next):
 
 '''
     text = text.replace(apps, apps + middleware, 1)
+
+
+# Batch translator for free text written by users. Existing translate_text() already
+# uses configured translator, Google and MyMemory fallback.
+route_marker = "@admin_app.get('/', response_class=HTMLResponse)"
+if "@admin_app.post('/i18n/translate')" not in text and route_marker in text:
+    routes = r'''
+UI_FREE_TRANSLATION_CACHE = {}
+
+async def _translate_ui_batch(payload):
+    import asyncio
+    target = str((payload or {}).get('target') or '').strip().lower()
+    if target not in ('de','ro'):
+        return {'translations': {}}
+    raw_texts = (payload or {}).get('texts') or []
+    texts = []
+    total = 0
+    for value in raw_texts[:24]:
+        value = str(value or '').strip()
+        if not value or len(value) > 500:
+            continue
+        total += len(value)
+        if total > 6000:
+            break
+        if value not in texts:
+            texts.append(value)
+
+    async def one(value):
+        key = (target, value)
+        cached = UI_FREE_TRANSLATION_CACHE.get(key)
+        if cached:
+            return value, cached
+        translated, status = await asyncio.to_thread(translate_text, value, target)
+        final = translated if status == 'completed' and translated else value
+        if len(UI_FREE_TRANSLATION_CACHE) > 600:
+            UI_FREE_TRANSLATION_CACHE.clear()
+        UI_FREE_TRANSLATION_CACHE[key] = final
+        return value, final
+
+    pairs = await asyncio.gather(*(one(value) for value in texts))
+    return {'translations': dict(pairs)}
+
+@admin_app.post('/i18n/translate')
+async def admin_i18n_translate(request: Request):
+    payload = await request.json()
+    return await _translate_ui_batch(payload)
+
+@public_app.post('/manager/i18n/translate')
+async def manager_i18n_translate(request: Request):
+    if not manager_session_valid(request):
+        raise HTTPException(403, 'Accesso non valido')
+    payload = await request.json()
+    return await _translate_ui_batch(payload)
+
+'''
+    text = text.replace(route_marker, routes + route_marker, 1)
 
 # Patch page() directly.
 start = text.find("def page(")
@@ -232,6 +288,73 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     if(m && language==='ro') return m[1]+' zone';
     return translate(base);
   }
+  const autoNodes=new Set();
+  function autoTranslateUrl(){
+    const marker='/api/hassio_ingress/';
+    const current=location.pathname;
+    const start=current.indexOf(marker);
+    if(start>=0){
+      const after=start+marker.length;
+      const slash=current.indexOf('/',after);
+      const base=slash>=0?current.slice(0,slash+1):current+'/';
+      return base+'i18n/translate';
+    }
+    return location.pathname.startsWith('/manager')?'/manager/i18n/translate':'/i18n/translate';
+  }
+  function shouldAutoTranslate(value,node){
+    const t=String(value||'').trim();
+    if(language==='it'||t.length<3||t.length>500) return false;
+    if(!/[A-Za-zÀ-ÿ]/.test(t)) return false;
+    if(/^https?:\/\//i.test(t)||/@/.test(t)) return false;
+    if(/^\d+(?:[.,]\d+)?(?:\s*(?:pz|kg|m|l|mm|cm|bar|°C|%))?$/i.test(t)) return false;
+    if(/^\d{4}-\d{4}$/.test(t)) return false;
+    if(/^[A-Z0-9_.\/-]{2,24}$/.test(t) && !/\s/.test(t)) return false;
+    const parent=node.parentElement;
+    if(!parent||parent.closest('.hm-language-switch')||['SCRIPT','STYLE','TEXTAREA','OPTION'].includes(parent.tagName)) return false;
+    const base=canonical(t);
+    if(translate(base,language)!==base) return false; // already covered by dictionary
+    return true;
+  }
+  function restoreAutoTranslations(){
+    autoNodes.forEach(node=>{
+      if(node && node.isConnected && node._hmOriginalFull!==undefined) node.nodeValue=node._hmOriginalFull;
+    });
+  }
+  async function autoTranslateFreeText(){
+    if(language==='it') return;
+    const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+    const nodes=[]; const byText=new Map();
+    while(walker.nextNode()){
+      const node=walker.currentNode;
+      if(node._hmOriginalFull===undefined) node._hmOriginalFull=node.nodeValue;
+      const raw=node._hmOriginalFull;
+      const m=String(raw).match(/^(\s*)(.*?)(\s*)$/s);
+      if(!m||!shouldAutoTranslate(m[2],node)) continue;
+      const original=canonical(m[2]);
+      nodes.push([node,m[1],original,m[3]]);
+      if(!byText.has(original)) byText.set(original,[]);
+      byText.get(original).push([node,m[1],m[3]]);
+      autoNodes.add(node);
+    }
+    const texts=[...byText.keys()];
+    if(!texts.length) return;
+    try{
+      const response=await fetch(autoTranslateUrl(),{
+        method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({target:language,texts})
+      });
+      if(!response.ok) return;
+      const data=await response.json();
+      const translations=data.translations||{};
+      applying=true;
+      for(const [original,items] of byText.entries()){
+        const translated=translations[original]||original;
+        items.forEach(([node,prefix,suffix])=>{ if(node.isConnected) node.nodeValue=prefix+translated+suffix; });
+      }
+      applying=false;
+    }catch(e){}
+  }
   function translateNode(node){
     if(node.nodeType===Node.TEXT_NODE){
       const match=node.nodeValue.match(/^(\s*)(.*?)(\s*)$/s);
@@ -257,6 +380,7 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
   function apply(root=document.documentElement){
     if(applying) return;
     applying=true;
+    restoreAutoTranslations();
     document.documentElement.lang=language;
     translateNode(root);
     document.title=translate(document.title);
@@ -267,6 +391,7 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     });
     addGroupTicketButtons();
     applying=false;
+    setTimeout(autoTranslateFreeText,0);
   }
   function setLanguage(next){
     if(!['it','de','ro'].includes(next)||next===language) return;
