@@ -7,7 +7,7 @@ text = path.read_text(encoding='utf-8')
 # data-language buttons + localStorage + client-side dictionary + MutationObserver.
 
 # Keep displayed version aligned.
-text = text.replace("APP_VERSION = '1.5.16'", "APP_VERSION = '1.5.39'", 1)
+text = text.replace("APP_VERSION = '1.5.16'", "APP_VERSION = '1.5.42'", 1)
 
 # Make dashboard metric cards clickable without changing the working tickets route.
 metric_replacements = {
@@ -120,28 +120,114 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     'Nuovo gruppo':'Grup nou','Nome gruppo':'Numele grupului','Crea gruppo':'Creează grup','Elimina':'Șterge',
     'Salva assegnazione':'Salvează atribuirea','QR Zone':'QR Zone','Scarica tutti i QR':'Descarcă toate QR-urile'
   };
-  const reverse={};
-  Object.entries(messagesDe).forEach(([it,v])=>reverse[v]=it);
-  Object.entries(messagesRo).forEach(([it,v])=>reverse[v]=it);
+  Object.assign(messagesDe,{
+    'Password zone singole':'Passwort für einzelne Bereiche',
+    'Usata dai QR che aprono direttamente una zona.':'Wird von QR-Codes verwendet, die direkt einen Bereich öffnen.',
+    'Password salvata':'Gespeichertes Passwort','Inserisci nuovamente la password':'Passwort erneut eingeben',
+    'Salva password zone':'Bereichspasswort speichern','Password QR di gruppo':'Gruppen-QR-Passwort',
+    'È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.':'Es unterscheidet sich vom Passwort der einzelnen Bereiche und ermöglicht die Auswahl eines aktiven Bereichs.',
+    'Password di gruppo salvata':'Gespeichertes Gruppenpasswort','Crea la password di gruppo':'Gruppenpasswort erstellen',
+    'Salva password di gruppo':'Gruppenpasswort speichern','QR con tutte le zone':'QR mit allen Bereichen',
+    'Prima salva la password di gruppo.':'Speichere zuerst das Gruppenpasswort.','Configurazione':'Konfiguration',
+    'URL pubblico:':'Öffentliche URL:','Traduzione automatica:':'Automatische Übersetzung:',
+    'Automatica integrata (Google con MyMemory di riserva)':'Integrierte Automatik (Google mit MyMemory als Reserve)',
+    "URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.":"URL und Übersetzung werden in der Konfiguration des Home-Assistant-Add-ons geändert.",
+    'Dispositivi per le notifiche':'Geräte für Benachrichtigungen',
+    'I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.':'Neue Tickets werden an alle aktiven Geräte gesendet. Du kannst sie auch nach einem Telefonwechsel ändern.',
+    'Rileva dispositivi da Home Assistant':'Geräte aus Home Assistant erkennen','Diagnostica rilevamento:':'Erkennungsdiagnose:',
+    'Aggiunta manuale':'Manuell hinzufügen','Nome dispositivo':'Gerätename','Entità/azione di notifica':'Benachrichtigungs-Entität/Aktion',
+    'Entità/azione':'Entität/Aktion','Aggiungi dispositivo':'Gerät hinzufügen','Dispositivo attivo':'Gerät aktiv',
+    'Invia prova':'Test senden','Eliminare questo dispositivo?':'Dieses Gerät löschen?','Nessun dispositivo configurato.':'Kein Gerät konfiguriert.',
+    'Accesso degli utenti Home Assistant':'Zugriff für Home-Assistant-Benutzer',
+    'Abilita uno o più utenti Home Assistant non amministratori. Gli utenti abilitati avranno la stessa interfaccia operativa dell’amministratore per ticket, zone, QR e magazzino; l’intera area Impostazioni resterà riservata agli amministratori.':'Aktiviere einen oder mehrere Home-Assistant-Benutzer ohne Administratorrechte. Aktivierte Benutzer erhalten dieselbe Bedienoberfläche für Tickets, Bereiche, QR und Lager; der gesamte Bereich Einstellungen bleibt Administratoren vorbehalten.',
+    'Utente':'Benutzer','Azione':'Aktion','Abilita':'Aktivieren','Disabilita':'Deaktivieren','Abilitato':'Aktiviert','Disabilitato':'Deaktiviert',
+    'non rilevato in Home Assistant':'in Home Assistant nicht erkannt','Nessun utente Home Assistant non amministratore disponibile.':'Kein Home-Assistant-Benutzer ohne Administratorrechte verfügbar.',
+    'Diagnostica:':'Diagnose:','Apri almeno una volta Home Assistant con il nuovo utente e torna qui.':'Öffne Home Assistant mindestens einmal mit dem neuen Benutzer und kehre dann hierher zurück.',
+    'Utenti non amministratori disponibili:':'Verfügbare Benutzer ohne Administratorrechte:',
+    'Accesso del titolare esterno':'Externer Inhaberzugang',
+    'Portale separato da Home Assistant. Il titolare può gestire ticket, zone, QR e magazzino materiali. Impostazioni, PIN, telefoni e configurazioni tecniche restano riservati all’amministratore.':'Separates Portal von Home Assistant. Der Inhaber kann Tickets, Bereiche, QR-Codes und das Materiallager verwalten. Einstellungen, PINs, Telefone und technische Konfigurationen bleiben dem Administrator vorbehalten.',
+    'Indirizzo del portale:':'Portaladresse:','Nome utente del titolare':'Benutzername des Inhabers','Nuova password':'Neues Passwort',
+    'Lascia vuoto per conservare la password attuale.':'Leer lassen, um das aktuelle Passwort beizubehalten.',
+    'Crea una password di almeno 8 caratteri.':'Erstelle ein Passwort mit mindestens 8 Zeichen.',
+    'La password viene protetta e non può essere visualizzata: se viene dimenticata, puoi sostituirla qui.':'Das Passwort wird geschützt und kann nicht angezeigt werden. Falls es vergessen wird, kann es hier ersetzt werden.',
+    'Portale Titolare attivo':'Inhaberportal aktiv','Salva accesso titolare esterno':'Externen Inhaberzugang speichern',
+    'Backup':'Sicherung','Scarica database e fotografie in un unico archivio ZIP.':'Datenbank und Fotos in einem einzigen ZIP-Archiv herunterladen.',
+    'Scarica backup':'Sicherung herunterladen','Non configurato':'Nicht konfiguriert',
+    'La vecchia password è protetta e non recuperabile: salvala nuovamente una sola volta per renderla visibile.':'Das alte Passwort ist geschützt und kann nicht wiederhergestellt werden. Speichere es einmal neu, damit es sichtbar wird.',
+    'Imposta la password per i QR delle singole zone.':'Lege das Passwort für die QR-Codes der einzelnen Bereiche fest.',
+    'Esporta CSV':'CSV exportieren','Codice, zona, nome o descrizione':'Code, Bereich, Name oder Beschreibung',
+    'Nessun ticket trovato':'Keine Tickets gefunden','Nessun ticket':'Keine Tickets','Scorte basse':'Niedriger Bestand',
+    'Ticket totali':'Tickets gesamt','Nuovi':'Neu','Sola lettura:':'Nur Lesen:','Dispositivo':'Gerät'
+  });
+  Object.assign(messagesRo,{
+    'Password zone singole':'Parolă pentru zone individuale',
+    'Usata dai QR che aprono direttamente una zona.':'Folosită de codurile QR care deschid direct o zonă.',
+    'Password salvata':'Parolă salvată','Inserisci nuovamente la password':'Introdu din nou parola',
+    'Salva password zone':'Salvează parola zonelor','Password QR di gruppo':'Parolă QR de grup',
+    'È diversa dalla password delle singole zone e permette di scegliere una delle zone attive.':'Este diferită de parola zonelor individuale și permite alegerea unei zone active.',
+    'Password di gruppo salvata':'Parolă de grup salvată','Crea la password di gruppo':'Creează parola de grup',
+    'Salva password di gruppo':'Salvează parola de grup','QR con tutte le zone':'QR cu toate zonele',
+    'Prima salva la password di gruppo.':'Mai întâi salvează parola de grup.','Configurazione':'Configurare',
+    'URL pubblico:':'URL public:','Traduzione automatica:':'Traducere automată:',
+    'Automatica integrata (Google con MyMemory di riserva)':'Automată integrată (Google cu MyMemory de rezervă)',
+    "URL e traduzione si modificano nella scheda Configurazione dell'add-on di Home Assistant.":"URL-ul și traducerea se modifică în configurația add-on-ului Home Assistant.",
+    'Dispositivi per le notifiche':'Dispozitive pentru notificări',
+    'I nuovi ticket vengono inviati a tutti i dispositivi attivi. Puoi modificarli anche quando cambi telefono.':'Tichetele noi sunt trimise tuturor dispozitivelor active. Le poți modifica și când schimbi telefonul.',
+    'Rileva dispositivi da Home Assistant':'Detectează dispozitive din Home Assistant','Diagnostica rilevamento:':'Diagnostic detectare:',
+    'Aggiunta manuale':'Adăugare manuală','Nome dispositivo':'Nume dispozitiv','Entità/azione di notifica':'Entitate/acțiune notificare',
+    'Entità/azione':'Entitate/acțiune','Aggiungi dispositivo':'Adaugă dispozitiv','Dispositivo attivo':'Dispozitiv activ',
+    'Invia prova':'Trimite test','Eliminare questo dispositivo?':'Ștergi acest dispozitiv?','Nessun dispositivo configurato.':'Niciun dispozitiv configurat.',
+    'Accesso degli utenti Home Assistant':'Acces utilizatori Home Assistant',
+    'Abilita uno o più utenti Home Assistant non amministratori. Gli utenti abilitati avranno la stessa interfaccia operativa dell’amministratore per ticket, zone, QR e magazzino; l’intera area Impostazioni resterà riservata agli amministratori.':'Activează unul sau mai mulți utilizatori Home Assistant fără drepturi de administrator. Utilizatorii activați vor avea aceeași interfață pentru tichete, zone, QR și depozit; zona Setări rămâne rezervată administratorilor.',
+    'Utente':'Utilizator','Azione':'Acțiune','Abilita':'Activează','Disabilita':'Dezactivează','Abilitato':'Activat','Disabilitato':'Dezactivat',
+    'non rilevato in Home Assistant':'nedetectat în Home Assistant','Nessun utente Home Assistant non amministratore disponibile.':'Niciun utilizator Home Assistant fără drepturi de administrator disponibil.',
+    'Diagnostica:':'Diagnostic:','Apri almeno una volta Home Assistant con il nuovo utente e torna qui.':'Deschide Home Assistant cel puțin o dată cu noul utilizator și revino aici.',
+    'Utenti non amministratori disponibili:':'Utilizatori fără drepturi de administrator disponibili:',
+    'Accesso del titolare esterno':'Acces extern proprietar',
+    'Portale separato da Home Assistant. Il titolare può gestire ticket, zone, QR e magazzino materiali. Impostazioni, PIN, telefoni e configurazioni tecniche restano riservati all’amministratore.':'Portal separat de Home Assistant. Proprietarul poate gestiona tichete, zone, QR și depozitul de materiale. Setările, PIN-urile, telefoanele și configurațiile tehnice rămân rezervate administratorului.',
+    'Indirizzo del portale:':'Adresa portalului:','Nome utente del titolare':'Nume utilizator proprietar','Nuova password':'Parolă nouă',
+    'Lascia vuoto per conservare la password attuale.':'Lasă gol pentru a păstra parola actuală.',
+    'Crea una password di almeno 8 caratteri.':'Creează o parolă de cel puțin 8 caractere.',
+    'La password viene protetta e non può essere visualizzata: se viene dimenticata, puoi sostituirla qui.':'Parola este protejată și nu poate fi afișată. Dacă este uitată, o poți înlocui aici.',
+    'Portale Titolare attivo':'Portal proprietar activ','Salva accesso titolare esterno':'Salvează accesul extern al proprietarului',
+    'Backup':'Copie de siguranță','Scarica database e fotografie in un unico archivio ZIP.':'Descarcă baza de date și fotografiile într-o singură arhivă ZIP.',
+    'Scarica backup':'Descarcă copia de siguranță','Non configurato':'Neconfigurat',
+    'La vecchia password è protetta e non recuperabile: salvala nuovamente una sola volta per renderla visibile.':'Parola veche este protejată și nu poate fi recuperată. Salveaz-o din nou o singură dată pentru a deveni vizibilă.',
+    'Imposta la password per i QR delle singole zone.':'Setează parola pentru codurile QR ale zonelor individuale.',
+    'Esporta CSV':'Exportă CSV','Codice, zona, nome o descrizione':'Cod, zonă, nume sau descriere',
+    'Nessun ticket trovato':'Niciun tichet găsit','Nessun ticket':'Niciun tichet','Scorte basse':'Stoc redus',
+    'Ticket totali':'Total tichete','Nuovi':'Noi','Sola lettura:':'Doar citire:','Dispositivo':'Dispozitiv'
+  });
+  const reverseEntries=[];
+  Object.entries(messagesDe).forEach(([it,v])=>reverseEntries.push([v,it]));
+  Object.entries(messagesRo).forEach(([it,v])=>reverseEntries.push([v,it]));
+  reverseEntries.sort((a,b)=>b[0].length-a[0].length);
+  const sourceDe=Object.entries(messagesDe).sort((a,b)=>b[0].length-a[0].length);
+  const sourceRo=Object.entries(messagesRo).sort((a,b)=>b[0].length-a[0].length);
   const storageKey='hausmeister-language:__USER_ID__';
   let language=localStorage.getItem(storageKey);
   if(!['it','de','ro'].includes(language)) language='__DEFAULT_LANG__';
   let applying=false;
 
   function canonical(value){
-    const text=String(value??'');
-    return reverse[text]||text;
+    let text=String(value??'');
+    for(const [translated,it] of reverseEntries){
+      if(translated && text.includes(translated)) text=text.split(translated).join(it);
+    }
+    return text;
   }
   function translate(value,target=language){
-    const original=String(value??'');
-    const base=canonical(original);
-    if(target==='de') return messagesDe[base]||base;
-    if(target==='ro') return messagesRo[base]||base;
+    let base=canonical(value);
+    if(target==='it') return base;
+    const entries=target==='de'?sourceDe:sourceRo;
+    for(const [it,translated] of entries){
+      if(it && base.includes(it)) base=base.split(it).join(translated);
+    }
     return base;
   }
   function dynamicTranslate(text){
     let base=canonical(text);
-    const m=base.match(/^(\d+) zone$/);
+    const m=base.match(/^(\\d+) zone$/);
     if(m && language==='de') return m[1]+' Bereiche';
     if(m && language==='ro') return m[1]+' zone';
     return translate(base);
