@@ -82,3 +82,38 @@ new_lang = """def public_language(request: Request):
 if old_lang in text:
     text = text.replace(old_lang, new_lang, 1)
 path.write_text(text,encoding='utf-8')
+
+
+# Per-user language in Home Assistant Ingress.
+# Home Assistant's own frontend language is not reliably forwarded as Accept-Language,
+# so use a per-browser/session cookie populated client-side from HA/local browser locale.
+old_public_language = """def public_language(request: Request):
+    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()
+    if preferred.startswith('de'):
+        return 'de'
+    if preferred.startswith('ro'):
+        return 'ro'
+    return 'it'
+"""
+new_public_language = """def public_language(request: Request):
+    cookie_lang = (request.cookies.get('hm_user_lang') or '').lower()
+    if cookie_lang in ('it','de','ro'):
+        return cookie_lang
+    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()
+    if preferred.startswith('de'):
+        return 'de'
+    if preferred.startswith('ro'):
+        return 'ro'
+    return 'it'
+"""
+if old_public_language in text:
+    text = text.replace(old_public_language, new_public_language, 1)
+
+# Inject a tiny per-user locale synchronizer into every rendered page.
+page_marker = "    return f'''<!doctype html><html lang=\"{esc(lang)}\"><head>"
+if page_marker in text and "hm_user_lang" not in text[text.find("def page("):text.find("def page(")+5000]:
+    replacement = """    locale_sync = '''<script>(function(){try{var l=(navigator.language||navigator.userLanguage||'it').toLowerCase().split('-')[0];if(!['it','de','ro'].includes(l))l='it';var m=document.cookie.match(/(?:^|; )hm_user_lang=([^;]+)/);var old=m?decodeURIComponent(m[1]):'';if(old!==l){document.cookie='hm_user_lang='+encodeURIComponent(l)+';path=/;max-age=31536000;SameSite=Lax';if(!sessionStorage.getItem('hm_lang_reload')){sessionStorage.setItem('hm_lang_reload','1');location.reload();}}else{sessionStorage.removeItem('hm_lang_reload');}}catch(e){}})();</script>'''
+"""
+    text = text.replace(page_marker, replacement + page_marker.replace("<head>","<head>{locale_sync}"), 1)
+
+path.write_text(text,encoding='utf-8')
