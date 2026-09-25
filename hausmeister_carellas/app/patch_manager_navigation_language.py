@@ -6,13 +6,13 @@ text = path.read_text(encoding='utf-8')
 # Dashboard manager: metriche cliccabili e filtro gruppo "in lavorazione".
 repls = {
 '''<div class="card span-3"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">{manager_text(lang, 'total')}</span><strong>{total}</strong></div></div></div>''':
-'''<a href="/manager/tickets" style="text-decoration:none;color:inherit"><div class="card span-3" style="height:100%"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">{manager_text(lang, 'total')}</span><strong>{total}</strong></div></div></div></a>''',
+'''<a href="/manager/tickets" class="card span-3" style="text-decoration:none;color:inherit"><div><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">{manager_text(lang, 'total')}</span><strong>{total}</strong></div></div></div></a>''',
 '''<div class="card span-3"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">{manager_text(lang, 'open')}</span><strong>{open_count}</strong></div></div></div>''':
-'''<a href="/manager/tickets?status=Nuovo" style="text-decoration:none;color:inherit"><div class="card span-3" style="height:100%"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">{manager_text(lang, 'open')}</span><strong>{open_count}</strong></div></div></div></a>''',
+'''<a href="/manager/tickets?status=Nuovo" class="card span-3" style="text-decoration:none;color:inherit"><div><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">{manager_text(lang, 'open')}</span><strong>{open_count}</strong></div></div></div></a>''',
 '''<div class="card span-3"><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">{manager_text(lang, 'working')}</span><strong>{work_count}</strong></div></div></div>''':
-'''<a href="/manager/tickets?status_group=working" style="text-decoration:none;color:inherit"><div class="card span-3" style="height:100%"><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">{manager_text(lang, 'working')}</span><strong>{work_count}</strong></div></div></div></a>''',
+'''<a href="/manager/tickets?status_group=working" class="card span-3" style="text-decoration:none;color:inherit"><div><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">{manager_text(lang, 'working')}</span><strong>{work_count}</strong></div></div></div></a>''',
 '''<div class="card span-3"><div class="metric"><div class="metric-icon">✓</div><div><span class="muted">{manager_text(lang, 'resolved')}</span><strong>{done_count}</strong></div></div></div>''':
-'''<a href="/manager/tickets?status=Risolto" style="text-decoration:none;color:inherit"><div class="card span-3" style="height:100%"><div class="metric"><div class="metric-icon">✓</div><div><span class="muted">{manager_text(lang, 'resolved')}</span><strong>{done_count}</strong></div></div></div></a>'''
+'''<a href="/manager/tickets?status=Risolto" class="card span-3" style="text-decoration:none;color:inherit"><div><div class="metric"><div class="metric-icon">✓</div><div><span class="muted">{manager_text(lang, 'resolved')}</span><strong>{done_count}</strong></div></div></div></a>'''
 }
 for old,new in repls.items():
     if old in text: text=text.replace(old,new,1)
@@ -67,3 +67,8 @@ text=text.replace("""def manager_status_text(lang: str, value: str):
 """)
 
 path.write_text(text,encoding='utf-8')
+
+# Automatic language including Romanian.
+old_lang = "def public_language(request: Request):\\n    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()\\n    return 'de' if preferred.startswith('de') else 'it'\\n"
+new_lang = "def public_language(request: Request):\\n    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()\\n    if preferred.startswith('de'):\\n        return 'de'\\n    if preferred.startswith('ro'):\\n        return 'ro'\\n    return 'it'\\n"
+if old_lang in text:\n    text = text.replace(old_lang, new_lang, 1)\npath.write_text(text,encoding='utf-8')\n
