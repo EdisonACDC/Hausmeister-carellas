@@ -69,7 +69,7 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     hm_user_id = CURRENT_HA_USER_ID.get() or 'anonymous'
     saved_language = get_setting('ha_user_language_' + hm_user_id, '').strip().lower() if hm_user_id != 'anonymous' else ''
     default_language = saved_language if saved_language in ('it','de','ro') else 'it'
-    language_selector = '''<div class="hm-language-switch" role="group" aria-label="Lingua / Sprache / Limbă"><button type="button" data-language="it">IT</button><button type="button" data-language="de">DE</button><button type="button" data-language="ro">RO</button></div>'''
+    language_selector = '<div class="hm-language-switch" role="group" aria-label="Lingua / Sprache / Limbă"><button type="button" data-language="it">IT</button><button type="button" data-language="de">DE</button><button type="button" data-language="ro">RO</button></div>'
     hm_i18n = r"""<style>
 .hm-language-switch{display:flex;gap:6px;margin:10px 0 14px}
 .hm-language-switch button{min-height:38px;padding:7px 11px;border:1px solid #ffffff35;background:#24343e;color:#fff;border-radius:8px}
