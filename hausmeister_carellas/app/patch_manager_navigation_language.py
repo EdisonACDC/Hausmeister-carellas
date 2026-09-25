@@ -287,7 +287,7 @@ if needle_lang in text:
 page_needle = """    settings_link = '<a class="side-link" href="settings" onclick="return adminGo(\\'settings\\')">⚙ Impostazioni</a>' if CURRENT_INGRESS_IS_ADMIN.get() else ''
 """
 page_repl = """    settings_link = '<a class="side-link" href="settings" onclick="return adminGo(\\'settings\\')">⚙ Impostazioni</a>' if CURRENT_INGRESS_IS_ADMIN.get() else ''
-    language_selector = f'''<form method="post" action="/user-language" style="margin:10px 0 14px"><select name="language" onchange="this.form.submit()" style="margin:0;padding:9px 10px;background:#24343e;color:#fff;border:1px solid #ffffff30"><option value="it" {"selected" if lang=="it" else ""}>🇮🇹 Italiano</option><option value="de" {"selected" if lang=="de" else ""}>🇩🇪 Deutsch</option><option value="ro" {"selected" if lang=="ro" else ""}>🇷🇴 Română</option></select><input type="hidden" name="next_url" value=""></form>'''
+    language_selector = f'''<form method="post" action="user-language" onsubmit="return languageGo(this)" style="margin:10px 0 14px"><select name="language" onchange="languageGo(this.form)" style="margin:0;padding:9px 10px;background:#24343e;color:#fff;border:1px solid #ffffff30"><option value="it" {"selected" if lang=="it" else ""}>🇮🇹 Italiano</option><option value="de" {"selected" if lang=="de" else ""}>🇩🇪 Deutsch</option><option value="ro" {"selected" if lang=="ro" else ""}>🇷🇴 Română</option></select><input type="hidden" name="next_url" value=""></form>'''
 """
 if page_needle in text:
     text = text.replace(page_needle,page_repl,1)
@@ -312,7 +312,7 @@ def admin_user_language(request: Request, language: str = Form(...)):
     _save_user_language(request, language)
     return RedirectResponse(request.headers.get('referer') or './', status_code=303)
 
-@public_app.post('/user-language')
+@public_app.post('/manager/user-language')
 def manager_user_language(request: Request, language: str = Form(...)):
     if not manager_session_valid(request):
         return RedirectResponse('/manager/login', status_code=303)
@@ -322,5 +322,12 @@ def manager_user_language(request: Request, language: str = Form(...)):
 '''
 if "@admin_app.post('/user-language')" not in text and route_marker in text:
     text = text.replace(route_marker,routes+route_marker,1)
+
+
+# Make language switching ingress-safe: absolute /user-language points to Home Assistant and returns 404.
+js_marker = "<script>function adminGo(path){{"
+js_repl = """<script>function languageGo(form){try{const marker='/api/hassio_ingress/';const current=location.pathname;const start=current.indexOf(marker);if(start>=0){const after=start+marker.length;const slash=current.indexOf('/',after);const base=slash>=0?current.slice(0,slash+1):current+'/';form.action=base+'user-language';}else{form.action='/manager/user-language';}form.submit();}catch(e){form.submit();}return false;}function adminGo(path){{"""
+if js_marker in text and "function languageGo(form)" not in text:
+    text = text.replace(js_marker, js_repl, 1)
 
 path.write_text(text,encoding='utf-8')
