@@ -7,7 +7,7 @@ text = path.read_text(encoding='utf-8')
 # data-language buttons + localStorage + client-side dictionary + MutationObserver.
 
 # Keep displayed version aligned.
-text = text.replace("APP_VERSION = '1.5.16'", "APP_VERSION = '1.5.43'", 1)
+text = text.replace("APP_VERSION = '1.5.16'", "APP_VERSION = '1.5.44'", 1)
 
 # Make dashboard metric cards clickable without changing the working tickets route.
 metric_replacements = {
@@ -213,7 +213,7 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     'Imposta la password per i QR delle singole zone.':'Lege das Passwort für die QR-Codes der einzelnen Bereiche fest.',
     'Esporta CSV':'CSV exportieren','Codice, zona, nome o descrizione':'Code, Bereich, Name oder Beschreibung',
     'Nessun ticket trovato':'Keine Tickets gefunden','Nessun ticket':'Keine Tickets','Scorte basse':'Niedriger Bestand',
-    'Ticket totali':'Tickets gesamt','Nuovi':'Neu','Sola lettura:':'Nur Lesen:','Dispositivo':'Gerät'
+    'Ticket totali':'Tickets gesamt','Nuovi':'Neu','Sola lettura:':'Nur Lesen:','Dispositivo':'Gerät','Nuovo ticket':'Neues Ticket','Nuovo Ticket':'Neues Ticket','Accesso interno Home Assistant: nessuna password richiesta.':'Interner Home-Assistant-Zugriff: kein Passwort erforderlich.','Inserisci nome e cognome':'Vor- und Nachname eingeben','Seleziona la categoria':'Kategorie auswählen','Foto (opzionale, massimo 5)':'Fotos (optional, maximal 5)','Foto 1 (opzionale)':'Foto 1 (optional)','Invia ticket':'Ticket senden','Invia segnalazione':'Meldung senden'
   });
   Object.assign(messagesRo,{
     'Password zone singole':'Parolă pentru zone individuale',
@@ -252,43 +252,37 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     'Imposta la password per i QR delle singole zone.':'Setează parola pentru codurile QR ale zonelor individuale.',
     'Esporta CSV':'Exportă CSV','Codice, zona, nome o descrizione':'Cod, zonă, nume sau descriere',
     'Nessun ticket trovato':'Niciun tichet găsit','Nessun ticket':'Niciun tichet','Scorte basse':'Stoc redus',
-    'Ticket totali':'Total tichete','Nuovi':'Noi','Sola lettura:':'Doar citire:','Dispositivo':'Dispozitiv'
+    'Ticket totali':'Total tichete','Nuovi':'Noi','Sola lettura:':'Doar citire:','Dispositivo':'Dispozitiv','Nuovo ticket':'Tichet nou','Nuovo Ticket':'Tichet nou','Accesso interno Home Assistant: nessuna password richiesta.':'Acces intern Home Assistant: nu este necesară parola.','Inserisci nome e cognome':'Introdu numele și prenumele','Seleziona la categoria':'Selectează categoria','Foto (opzionale, massimo 5)':'Fotografii (opțional, maximum 5)','Foto 1 (opzionale)':'Foto 1 (opțional)','Invia ticket':'Trimite tichetul','Invia segnalazione':'Trimite sesizarea'
   });
-  const reverseEntries=[];
-  Object.entries(messagesDe).forEach(([it,v])=>reverseEntries.push([v,it]));
-  Object.entries(messagesRo).forEach(([it,v])=>reverseEntries.push([v,it]));
-  reverseEntries.sort((a,b)=>b[0].length-a[0].length);
-  const sourceDe=Object.entries(messagesDe).sort((a,b)=>b[0].length-a[0].length);
-  const sourceRo=Object.entries(messagesRo).sort((a,b)=>b[0].length-a[0].length);
+  const reverseExact={};
+  Object.entries(messagesDe).forEach(([it,v])=>{ if(v) reverseExact[v]=it; });
+  Object.entries(messagesRo).forEach(([it,v])=>{ if(v) reverseExact[v]=it; });
   const storageKey='hausmeister-language:__USER_ID__';
   let language=localStorage.getItem(storageKey);
   if(!['it','de','ro'].includes(language)) language='__DEFAULT_LANG__';
   let applying=false;
+  const autoNodes=new Set();
 
-  function canonical(value){
-    let text=String(value??'');
-    for(const [translated,it] of reverseEntries){
-      if(translated && text.includes(translated)) text=text.split(translated).join(it);
-    }
-    return text;
+  function canonicalExact(value){
+    const text=String(value??'');
+    return reverseExact[text]||text;
   }
-  function translate(value,target=language){
-    let base=canonical(value);
-    if(target==='it') return base;
-    const entries=target==='de'?sourceDe:sourceRo;
-    for(const [it,translated] of entries){
-      if(it && base.includes(it)) base=base.split(it).join(translated);
-    }
+  function translateExact(value,target=language){
+    const base=canonicalExact(String(value??''));
+    if(target==='de') return messagesDe[base]||base;
+    if(target==='ro') return messagesRo[base]||base;
     return base;
   }
   function dynamicTranslate(text){
-    let base=canonical(text);
-    const m=base.match(/^(\\d+) zone$/);
+    const base=canonicalExact(String(text??''));
+    let m=base.match(/^(\\d+) zone$/);
     if(m && language==='de') return m[1]+' Bereiche';
     if(m && language==='ro') return m[1]+' zone';
-    return translate(base);
+    m=base.match(/^Foto (\\d+) \\(opzionale\\)$/);
+    if(m && language==='de') return 'Foto '+m[1]+' (optional)';
+    if(m && language==='ro') return 'Foto '+m[1]+' (opțional)';
+    return translateExact(base,language);
   }
-  const autoNodes=new Set();
   function autoTranslateUrl(){
     const marker='/api/hassio_ingress/';
     const current=location.pathname;
@@ -305,33 +299,26 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     const t=String(value||'').trim();
     if(language==='it'||t.length<3||t.length>500) return false;
     if(!/[A-Za-zÀ-ÿ]/.test(t)) return false;
-    if(/^https?:\/\//i.test(t)||/@/.test(t)) return false;
-    if(/^\d+(?:[.,]\d+)?(?:\s*(?:pz|kg|m|l|mm|cm|bar|°C|%))?$/i.test(t)) return false;
-    if(/^\d{4}-\d{4}$/.test(t)) return false;
-    if(/^[A-Z0-9_.\/-]{2,24}$/.test(t) && !/\s/.test(t)) return false;
+    if(/^https?:\\/\\//i.test(t)||/@/.test(t)) return false;
+    if(/^\\d+(?:[.,]\\d+)?(?:\\s*(?:pz|kg|m|l|mm|cm|bar|°C|%))?$/i.test(t)) return false;
+    if(/^\\d{4}-\\d{4}$/.test(t)) return false;
+    if(/^[A-Z0-9_.\\/-]{2,24}$/.test(t) && !/\\s/.test(t)) return false;
     const parent=node.parentElement;
-    if(!parent||parent.closest('.hm-language-switch')||['SCRIPT','STYLE','TEXTAREA','OPTION'].includes(parent.tagName)) return false;
-    const base=canonical(t);
-    if(translate(base,language)!==base) return false; // already covered by dictionary
+    if(!parent||parent.closest('.hm-language-switch')||['SCRIPT','STYLE','TEXTAREA','OPTION','SELECT'].includes(parent.tagName)) return false;
+    if(translateExact(t,language)!==t) return false;
     return true;
-  }
-  function restoreAutoTranslations(){
-    autoNodes.forEach(node=>{
-      if(node && node.isConnected && node._hmOriginalFull!==undefined) node.nodeValue=node._hmOriginalFull;
-    });
   }
   async function autoTranslateFreeText(){
     if(language==='it') return;
     const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
-    const nodes=[]; const byText=new Map();
+    const byText=new Map();
     while(walker.nextNode()){
       const node=walker.currentNode;
-      if(node._hmOriginalFull===undefined) node._hmOriginalFull=node.nodeValue;
-      const raw=node._hmOriginalFull;
-      const m=String(raw).match(/^(\s*)(.*?)(\s*)$/s);
+      if(node._hmBaseFull===undefined) node._hmBaseFull=node.nodeValue;
+      const raw=node._hmBaseFull;
+      const m=String(raw).match(/^(\\s*)(.*?)(\\s*)$/s);
       if(!m||!shouldAutoTranslate(m[2],node)) continue;
-      const original=canonical(m[2]);
-      nodes.push([node,m[1],original,m[3]]);
+      const original=m[2];
       if(!byText.has(original)) byText.set(original,[]);
       byText.get(original).push([node,m[1],m[3]]);
       autoNodes.add(node);
@@ -350,22 +337,42 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
       applying=true;
       for(const [original,items] of byText.entries()){
         const translated=translations[original]||original;
-        items.forEach(([node,prefix,suffix])=>{ if(node.isConnected) node.nodeValue=prefix+translated+suffix; });
+        items.forEach(([node,prefix,suffix])=>{
+          if(node.isConnected) node.nodeValue=prefix+translated+suffix;
+        });
       }
       applying=false;
     }catch(e){}
   }
   function translateNode(node){
     if(node.nodeType===Node.TEXT_NODE){
-      const match=node.nodeValue.match(/^(\s*)(.*?)(\s*)$/s);
+      if(node._hmBaseFull===undefined) node._hmBaseFull=node.nodeValue;
+      const raw=node._hmBaseFull;
+      const match=String(raw).match(/^(\\s*)(.*?)(\\s*)$/s);
       if(match&&match[2]) node.nodeValue=match[1]+dynamicTranslate(match[2])+match[3];
       return;
     }
     if(node.nodeType!==Node.ELEMENT_NODE||['SCRIPT','STYLE'].includes(node.tagName)) return;
     ['placeholder','aria-label','title'].forEach(attr=>{
-      if(node.hasAttribute(attr)) node.setAttribute(attr,dynamicTranslate(node.getAttribute(attr)));
+      if(!node.hasAttribute(attr)) return;
+      const prop='_hmBase_'+attr;
+      if(node[prop]===undefined) node[prop]=node.getAttribute(attr);
+      node.setAttribute(attr,dynamicTranslate(node[prop]));
     });
     [...node.childNodes].forEach(translateNode);
+  }
+  function resetAllToBase(){
+    const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+    while(walker.nextNode()){
+      const node=walker.currentNode;
+      if(node._hmBaseFull!==undefined) node.nodeValue=node._hmBaseFull;
+    }
+    document.querySelectorAll('*').forEach(node=>{
+      ['placeholder','aria-label','title'].forEach(attr=>{
+        const prop='_hmBase_'+attr;
+        if(node[prop]!==undefined) node.setAttribute(attr,node[prop]);
+      });
+    });
   }
   function addGroupTicketButtons(){
     document.querySelectorAll('details a[href^="zone/"]').forEach(a=>{
@@ -380,10 +387,10 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
   function apply(root=document.documentElement){
     if(applying) return;
     applying=true;
-    restoreAutoTranslations();
+    resetAllToBase();
     document.documentElement.lang=language;
     translateNode(root);
-    document.title=translate(document.title);
+    document.title=translateExact(document.title,language);
     document.querySelectorAll('[data-language]').forEach(button=>{
       const active=button.dataset.language===language;
       button.classList.toggle('active',active);
@@ -404,8 +411,7 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     apply();
     new MutationObserver(records=>{
       if(applying) return;
-      records.forEach(record=>record.addedNodes.forEach(translateNode));
-      addGroupTicketButtons();
+      if(records.some(record=>record.addedNodes&&record.addedNodes.length)) apply();
     }).observe(document.body,{childList:true,subtree:true});
   });
 })();
