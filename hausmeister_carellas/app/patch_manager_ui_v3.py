@@ -275,10 +275,10 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
   }
   function dynamicTranslate(text){
     const base=canonicalExact(String(text??''));
-    let m=base.match(/^(\\d+) zone$/);
+    let m=base.match(/^(\d+) zone$/);
     if(m && language==='de') return m[1]+' Bereiche';
     if(m && language==='ro') return m[1]+' zone';
-    m=base.match(/^Foto (\\d+) \\(opzionale\\)$/);
+    m=base.match(/^Foto (\d+) \(opzionale\)$/);
     if(m && language==='de') return 'Foto '+m[1]+' (optional)';
     if(m && language==='ro') return 'Foto '+m[1]+' (opțional)';
     return translateExact(base,language);
@@ -299,10 +299,10 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     const t=String(value||'').trim();
     if(language==='it'||t.length<3||t.length>500) return false;
     if(!/[A-Za-zÀ-ÿ]/.test(t)) return false;
-    if(/^https?:\\/\\//i.test(t)||/@/.test(t)) return false;
-    if(/^\\d+(?:[.,]\\d+)?(?:\\s*(?:pz|kg|m|l|mm|cm|bar|°C|%))?$/i.test(t)) return false;
-    if(/^\\d{4}-\\d{4}$/.test(t)) return false;
-    if(/^[A-Z0-9_.\\/-]{2,24}$/.test(t) && !/\\s/.test(t)) return false;
+    if(/^https?:\/\//i.test(t)||/@/.test(t)) return false;
+    if(/^\d+(?:[.,]\d+)?(?:\s*(?:pz|kg|m|l|mm|cm|bar|°C|%))?$/i.test(t)) return false;
+    if(/^\d{4}-\d{4}$/.test(t)) return false;
+    if(/^[A-Z0-9_.\/-]{2,24}$/.test(t) && !/\s/.test(t)) return false;
     const parent=node.parentElement;
     if(!parent||parent.closest('.hm-language-switch')||['SCRIPT','STYLE','TEXTAREA','OPTION','SELECT'].includes(parent.tagName)) return false;
     if(translateExact(t,language)!==t) return false;
@@ -316,7 +316,7 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
       const node=walker.currentNode;
       if(node._hmBaseFull===undefined) node._hmBaseFull=node.nodeValue;
       const raw=node._hmBaseFull;
-      const m=String(raw).match(/^(\\s*)(.*?)(\\s*)$/s);
+      const m=String(raw).match(/^(\s*)(.*?)(\s*)$/s);
       if(!m||!shouldAutoTranslate(m[2],node)) continue;
       const original=m[2];
       if(!byText.has(original)) byText.set(original,[]);
@@ -348,7 +348,7 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     if(node.nodeType===Node.TEXT_NODE){
       if(node._hmBaseFull===undefined) node._hmBaseFull=node.nodeValue;
       const raw=node._hmBaseFull;
-      const match=String(raw).match(/^(\\s*)(.*?)(\\s*)$/s);
+      const match=String(raw).match(/^(\s*)(.*?)(\s*)$/s);
       if(match&&match[2]) node.nodeValue=match[1]+dynamicTranslate(match[2])+match[3];
       return;
     }
