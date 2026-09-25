@@ -175,3 +175,81 @@ if old_sync in text:
     text = text.replace(old_sync,new_sync,1)
 
 path.write_text(text,encoding='utf-8')
+
+
+# Read the language preference stored by Home Assistant for the authenticated user.
+HA_USER_LANG_CACHE = {}
+
+def _ha_ws_user_language(user_id):
+    if not user_id or websocket is None:
+        return ''
+    cached = HA_USER_LANG_CACHE.get(user_id)
+    now = time.monotonic()
+    if cached and now - cached[0] < 60:
+        return cached[1]
+    token = os.environ.get('SUPERVISOR_TOKEN', '')
+    if not token:
+        return ''
+    connection = None
+    try:
+        connection = websocket.create_connection('ws://supervisor/core/websocket', timeout=5)
+        hello = json.loads(connection.recv())
+        if hello.get('type') != 'auth_required':
+            return ''
+        connection.send(json.dumps(dict(type='auth', access_token=token)))
+        if json.loads(connection.recv()).get('type') != 'auth_ok':
+            return ''
+        # Home Assistant frontend preference is stored per user.
+        commands = [
+            dict(id=71, type='frontend/get_user_data', key='language', user_id=user_id),
+            dict(id=72, type='frontend/get_user_data', user_id=user_id),
+        ]
+        for command in commands:
+            connection.send(json.dumps(command))
+            result = json.loads(connection.recv())
+            if not result.get('success'):
+                continue
+            data = result.get('result')
+            values = []
+            if isinstance(data, str):
+                values.append(data)
+            elif isinstance(data, dict):
+                for key in ('language','selectedLanguage','selected_language','locale'):
+                    if data.get(key):
+                        values.append(str(data[key]))
+                nested = data.get('language')
+                if isinstance(nested, dict):
+                    values.extend(str(v) for v in nested.values() if v)
+            for value in values:
+                value = value.lower().replace('_','-')
+                if value.startswith('de'):
+                    HA_USER_LANG_CACHE[user_id] = (now,'de'); return 'de'
+                if value.startswith('ro'):
+                    HA_USER_LANG_CACHE[user_id] = (now,'ro'); return 'ro'
+                if value.startswith('it'):
+                    HA_USER_LANG_CACHE[user_id] = (now,'it'); return 'it'
+    except Exception:
+        pass
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+    return ''
+
+# Insert the authenticated HA user preference before browser/cookie fallbacks.
+needle = """def public_language(request: Request):
+    requested = (request.query_params.get('ha_lang') or '').lower().replace('_','-')
+"""
+replacement = """def public_language(request: Request):
+    identity = ingress_identity(request)
+    ha_lang = _ha_ws_user_language(identity.get('id',''))
+    if ha_lang:
+        return ha_lang
+    requested = (request.query_params.get('ha_lang') or '').lower().replace('_','-')
+"""
+if needle in text:
+    text = text.replace(needle,replacement,1)
+
+path.write_text(text,encoding='utf-8')
