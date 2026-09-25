@@ -69,6 +69,18 @@ text=text.replace("""def manager_status_text(lang: str, value: str):
 path.write_text(text,encoding='utf-8')
 
 # Automatic language including Romanian.
-old_lang = "def public_language(request: Request):\\n    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()\\n    return 'de' if preferred.startswith('de') else 'it'\\n"
-new_lang = "def public_language(request: Request):\\n    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()\\n    if preferred.startswith('de'):\\n        return 'de'\\n    if preferred.startswith('ro'):\\n        return 'ro'\\n    return 'it'\\n"
-if old_lang in text:\n    text = text.replace(old_lang, new_lang, 1)\npath.write_text(text,encoding='utf-8')\n
+old_lang = """def public_language(request: Request):
+    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()
+    return 'de' if preferred.startswith('de') else 'it'
+"""
+new_lang = """def public_language(request: Request):
+    preferred = request.headers.get('accept-language', '').split(',', 1)[0].lower()
+    if preferred.startswith('de'):
+        return 'de'
+    if preferred.startswith('ro'):
+        return 'ro'
+    return 'it'
+"""
+if old_lang in text:
+    text = text.replace(old_lang, new_lang, 1)
+path.write_text(text,encoding='utf-8')
