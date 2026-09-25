@@ -6,27 +6,25 @@ text = path.read_text(encoding='utf-8')
 # Dashboard manager: metriche cliccabili e filtro gruppo "in lavorazione".
 repls = {
 '''<div class="card span-3"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">{manager_text(lang, 'total')}</span><strong>{total}</strong></div></div></div>''':
-'''<a href="/manager/tickets" class="card span-3" style="text-decoration:none;color:inherit"><div><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">{manager_text(lang, 'total')}</span><strong>{total}</strong></div></div></div></a>''',
+'''<a class="card span-3" href="/manager/tickets" style="text-decoration:none;color:inherit"><div class="metric"><div class="metric-icon">☷</div><div><span class="muted">{manager_text(lang, 'total')}</span><strong>{total}</strong></div></div></a>''',
 '''<div class="card span-3"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">{manager_text(lang, 'open')}</span><strong>{open_count}</strong></div></div></div>''':
-'''<a href="/manager/tickets?status=Nuovo" class="card span-3" style="text-decoration:none;color:inherit"><div><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">{manager_text(lang, 'open')}</span><strong>{open_count}</strong></div></div></div></a>''',
+'''<a class="card span-3" href="/manager/tickets?status=Nuovo" style="text-decoration:none;color:inherit"><div class="metric"><div class="metric-icon">⌛</div><div><span class="muted">{manager_text(lang, 'open')}</span><strong>{open_count}</strong></div></div></a>''',
 '''<div class="card span-3"><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">{manager_text(lang, 'working')}</span><strong>{work_count}</strong></div></div></div>''':
-'''<a href="/manager/tickets?status_group=working" class="card span-3" style="text-decoration:none;color:inherit"><div><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">{manager_text(lang, 'working')}</span><strong>{work_count}</strong></div></div></div></a>''',
+'''<a class="card span-3" href="/manager/tickets?status=In%20lavorazione" style="text-decoration:none;color:inherit"><div class="metric"><div class="metric-icon">🔧</div><div><span class="muted">{manager_text(lang, 'working')}</span><strong>{work_count}</strong></div></div></a>''',
 '''<div class="card span-3"><div class="metric"><div class="metric-icon">✓</div><div><span class="muted">{manager_text(lang, 'resolved')}</span><strong>{done_count}</strong></div></div></div>''':
-'''<a href="/manager/tickets?status=Risolto" class="card span-3" style="text-decoration:none;color:inherit"><div><div class="metric"><div class="metric-icon">✓</div><div><span class="muted">{manager_text(lang, 'resolved')}</span><strong>{done_count}</strong></div></div></div></a>'''
+'''<a class="card span-3" href="/manager/tickets?status=Risolto" style="text-decoration:none;color:inherit"><div class="metric"><div class="metric-icon">✓</div><div><span class="muted">{manager_text(lang, 'resolved')}</span><strong>{done_count}</strong></div></div></a>'''
 }
 for old,new in repls.items():
     if old in text: text=text.replace(old,new,1)
 
 old="def manager_tickets_page(request: Request, q: str = '', status: str = '', message: str = ''):"
-new="def manager_tickets_page(request: Request, q: str = '', status: str = '', status_group: str = '', message: str = ''):"
+new="def manager_tickets_page(request: Request, q: str = '', status: str = '', message: str = ''):"
 if old in text: text=text.replace(old,new,1)
 old2="""    if status in STATUSES:
         query += ' AND t.status=?'
         params.append(status)
 """
-new2="""    if status_group == 'working':
-        query += " AND t.status IN ('Preso in carico','In lavorazione')"
-    elif status in STATUSES:
+new2="""    if status in STATUSES:
         query += ' AND t.status=?'
         params.append(status)
 """
