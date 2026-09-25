@@ -221,9 +221,14 @@ manager_anchor = '<a class="side-link" href="/manager/logout">⇥ {manager_text(
 if manager_anchor in block and "{language_selector}" not in block[block.find(manager_anchor):block.find(manager_anchor)+500]:
     block = block.replace(manager_anchor, manager_anchor + "{language_selector}", 1)
 
-# Append our script last so it wins over earlier legacy scripts.
-if "{hm_i18n}</body></html>" not in block:
-    block = block.replace("</body></html>", "{hm_i18n}</body></html>", 1)
+# Append our script last. The page footer is a normal Python string, not an f-string,
+# so {hm_i18n} must be concatenated as a Python variable; putting it inside the
+# literal footer would only print the characters "{hm_i18n}" and no JS would run.
+footer = "+'''</div></body></html>'''"
+if footer in block:
+    block = block.replace(footer, "+'''</div>'''+hm_i18n+'''</body></html>'''", 1)
+else:
+    raise SystemExit("page footer marker not found for i18n injection")
 
 text = text[:start] + block + text[end:]
 path.write_text(text, encoding='utf-8')
