@@ -7,7 +7,7 @@ text = path.read_text(encoding='utf-8')
 # data-language buttons + localStorage + client-side dictionary + MutationObserver.
 
 # Keep displayed version aligned.
-text = text.replace("APP_VERSION = '1.5.16'", "APP_VERSION = '1.5.45'", 1)
+text = text.replace("APP_VERSION = '1.5.16'", "APP_VERSION = '1.5.46'", 1)
 
 # Make dashboard metric cards clickable without changing the working tickets route.
 metric_replacements = {
