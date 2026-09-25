@@ -253,3 +253,74 @@ if needle in text:
     text = text.replace(needle,replacement,1)
 
 path.write_text(text,encoding='utf-8')
+
+
+# Deterministic language preference stored per authenticated Home Assistant user.
+def _user_language_key(request):
+    identity = ingress_identity(request)
+    user_id = identity.get('id','').strip()
+    return 'ha_user_language_' + user_id if user_id else ''
+
+def _saved_user_language(request):
+    key = _user_language_key(request)
+    if not key:
+        return ''
+    value = get_setting(key, '').strip().lower()
+    return value if value in ('it','de','ro') else ''
+
+# Make saved per-user preference the first choice.
+needle_lang = """def public_language(request: Request):
+    identity = ingress_identity(request)
+    ha_lang = _ha_ws_user_language(identity.get('id',''))
+"""
+replacement_lang = """def public_language(request: Request):
+    saved_lang = _saved_user_language(request)
+    if saved_lang:
+        return saved_lang
+    identity = ingress_identity(request)
+    ha_lang = _ha_ws_user_language(identity.get('id',''))
+"""
+if needle_lang in text:
+    text = text.replace(needle_lang,replacement_lang,1)
+
+# Add a compact personal language selector to every authenticated manager/admin page.
+page_needle = """    settings_link = '<a class="side-link" href="settings" onclick="return adminGo(\\'settings\\')">⚙ Impostazioni</a>' if CURRENT_INGRESS_IS_ADMIN.get() else ''
+"""
+page_repl = """    settings_link = '<a class="side-link" href="settings" onclick="return adminGo(\\'settings\\')">⚙ Impostazioni</a>' if CURRENT_INGRESS_IS_ADMIN.get() else ''
+    language_selector = f'''<form method="post" action="/user-language" style="margin:10px 0 14px"><select name="language" onchange="this.form.submit()" style="margin:0;padding:9px 10px;background:#24343e;color:#fff;border:1px solid #ffffff30"><option value="it" {"selected" if lang=="it" else ""}>🇮🇹 Italiano</option><option value="de" {"selected" if lang=="de" else ""}>🇩🇪 Deutsch</option><option value="ro" {"selected" if lang=="ro" else ""}>🇷🇴 Română</option></select><input type="hidden" name="next_url" value=""></form>'''
+"""
+if page_needle in text:
+    text = text.replace(page_needle,page_repl,1)
+
+# Put selector in sidebar before footer where possible.
+side_needle = """{settings_link}"""
+if side_needle in text and "{language_selector}" not in text:
+    text = text.replace(side_needle, side_needle + "{language_selector}", 1)
+
+# Route on both admin ingress and public manager app.
+route_marker = "@admin_app.get('/', response_class=HTMLResponse)"
+routes = r'''
+def _save_user_language(request: Request, language: str):
+    if language not in ('it','de','ro'):
+        raise HTTPException(400, 'Lingua non valida')
+    key = _user_language_key(request)
+    if key:
+        set_setting(key, language)
+
+@admin_app.post('/user-language')
+def admin_user_language(request: Request, language: str = Form(...)):
+    _save_user_language(request, language)
+    return RedirectResponse(request.headers.get('referer') or './', status_code=303)
+
+@public_app.post('/user-language')
+def manager_user_language(request: Request, language: str = Form(...)):
+    if not manager_session_valid(request):
+        return RedirectResponse('/manager/login', status_code=303)
+    _save_user_language(request, language)
+    return RedirectResponse(request.headers.get('referer') or '/manager', status_code=303)
+
+'''
+if "@admin_app.post('/user-language')" not in text and route_marker in text:
+    text = text.replace(route_marker,routes+route_marker,1)
+
+path.write_text(text,encoding='utf-8')
