@@ -117,3 +117,5 @@ if page_marker in text and "hm_user_lang" not in text[text.find("def page("):tex
     text = text.replace(page_marker, replacement + page_marker.replace("<head>","<head>{locale_sync}"), 1)
 
 path.write_text(text,encoding='utf-8')
+
+# Prefer locale hints forwarded by the Home Assistant session.\nold = "    cookie_lang = (request.cookies.get('hm_user_lang') or '').lower()\\n    if cookie_lang in ('it','de','ro'):\\n        return cookie_lang\\n"\nnew = "    header_lang = (request.headers.get('X-Hass-Language') or request.headers.get('X-Hass-Locale') or '').lower()\\n    if header_lang.startswith('de'):\\n        return 'de'\\n    if header_lang.startswith('ro'):\\n        return 'ro'\\n    if header_lang.startswith('it'):\\n        return 'it'\\n    cookie_lang = (request.cookies.get('hm_user_lang') or '').lower()\\n    if cookie_lang in ('it','de','ro'):\\n        return cookie_lang\\n"\nif old in text:\n    text=text.replace(old,new,1)\npath.write_text(text,encoding='utf-8')\n
