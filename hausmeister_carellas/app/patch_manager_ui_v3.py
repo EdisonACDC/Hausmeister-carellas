@@ -7,7 +7,7 @@ text = path.read_text(encoding='utf-8')
 # data-language buttons + localStorage + client-side dictionary + MutationObserver.
 
 # Keep displayed version aligned.
-text = text.replace("APP_VERSION = '1.5.16'", "APP_VERSION = '1.5.44'", 1)
+text = text.replace("APP_VERSION = '1.5.16'", "APP_VERSION = '1.5.45'", 1)
 
 # Make dashboard metric cards clickable without changing the working tickets route.
 metric_replacements = {
@@ -380,7 +380,7 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
       if(!m||a.parentElement.querySelector('.hm-group-ticket[data-zone="'+m[1]+'"]')) return;
       const b=document.createElement('a');
       b.className='hm-group-ticket'; b.dataset.zone=m[1]; b.href='quick-ticket/'+m[1];
-      b.textContent=translate('Crea ticket');
+      b.textContent=translateExact('Crea ticket');
       a.insertAdjacentElement('afterend',b);
     });
   }
@@ -405,7 +405,7 @@ new_header = r'''def page(title: str, body: str, public: bool = False, lang: str
     language=next; localStorage.setItem(storageKey,language); apply();
     window.dispatchEvent(new CustomEvent('app-language-changed',{detail:{language}}));
   }
-  window.HausmeisterI18n={apply,getLanguage:()=>language,setLanguage,translate};
+  window.HausmeisterI18n={apply,getLanguage:()=>language,setLanguage,translate:translateExact};
   document.addEventListener('DOMContentLoaded',()=>{
     document.querySelectorAll('[data-language]').forEach(button=>button.addEventListener('click',()=>setLanguage(button.dataset.language)));
     apply();
