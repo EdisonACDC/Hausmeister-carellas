@@ -148,7 +148,12 @@ def whatsapp_public_ticket(request: Request, signed_token: str):
     ticket_id = whatsapp_ticket_id(signed_token)
     con = db(); ticket = con.execute('SELECT t.*,z.name AS zone_name FROM tickets t JOIN zones z ON z.id=t.zone_id WHERE t.id=?', (ticket_id,)).fetchone(); files = con.execute('SELECT * FROM ticket_files WHERE ticket_id=? ORDER BY id', (ticket_id,)).fetchall(); con.close()
     if not ticket: raise HTTPException(404, 'Ticket non trovato')
-    photos = ''.join(f'<a href="{esc(signed_token)}/file/{f["id"]}" target="_blank"><img src="{esc(signed_token)}/file/{f["id"]}" alt="Foto ticket"></a>' for f in files) or '<p class="muted">Nessuna foto allegata.</p>'
+    base = whatsapp_public_base_url()
+    token_q = urllib.parse.quote(signed_token, safe='')
+    photos = ''.join(
+        f'<a href="{esc(base)}/w/{esc(token_q)}/file/{f["id"]}" target="_blank"><img src="{esc(base)}/w/{esc(token_q)}/file/{f["id"]}" alt="Foto ticket" loading="eager"></a>'
+        for f in files
+    ) or '<p class="muted">Nessuna foto allegata.</p>'
     body = f'<div class="public-card"><h1>Intervento {esc(ticket["ticket_code"])}</h1><p><b>Zona:</b> {esc(ticket["zone_name"])}</p><p><b>Categoria:</b> {esc(ticket["category"])}</p><p><b>Priorità:</b> {esc(ticket["priority"] or "Normale")}</p><p><b>Stato:</b> {esc(ticket["status"])}</p><h2>Problema</h2><p style="white-space:pre-wrap">{esc(ticket["description_original"])}</p><h2>Foto</h2><div class="photos">{photos}</div></div>'
     return page(f'Intervento {ticket["ticket_code"]}', body, public=True, lang='it', close_on_back=True)
 
@@ -159,7 +164,17 @@ def whatsapp_public_file(signed_token: str, file_id: int):
     if not row: raise HTTPException(404)
     target = (UPLOAD_DIR / row['stored_name']).resolve()
     if not target.is_file() or target.parent != UPLOAD_DIR.resolve(): raise HTTPException(404)
-    return FileResponse(target, media_type=row['content_type'], content_disposition_type='inline', headers={'Cache-Control': 'private, no-store'})
+    filename = Path(row['original_name'] or 'foto-ticket').name.replace('"', '').replace('\r', '').replace('\n', '')
+    return FileResponse(
+        target,
+        media_type=row['content_type'],
+        filename=filename,
+        content_disposition_type='inline',
+        headers={
+            'X-Content-Type-Options': 'nosniff',
+            'Cache-Control': 'public, max-age=604800, immutable',
+        },
+    )
 
 '''
     if public_marker not in text: raise SystemExit('WhatsApp public route marker not found')
