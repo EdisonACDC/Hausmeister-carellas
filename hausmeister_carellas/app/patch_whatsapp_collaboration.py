@@ -140,7 +140,7 @@ if old_token in text:
 settings_start = text.find("@admin_app.get('/settings/whatsapp', response_class=HTMLResponse)")
 settings_end = text.find("@admin_app.post('/settings/whatsapp/create')", settings_start)
 if settings_start >= 0 and settings_end >= 0:
-    settings_func = r'''@admin_app.get('/settings/whatsapp', response_class=HTMLResponse)
+    settings_func = r"""@admin_app.get('/settings/whatsapp', response_class=HTMLResponse)
 def whatsapp_settings(message: str = ''):
     con = db()
     contacts = con.execute('SELECT * FROM whatsapp_contacts ORDER BY name').fetchall()
@@ -186,7 +186,7 @@ def whatsapp_settings(message: str = ''):
     return page('WhatsApp tecnici', body, back_url='../settings')
 
 
-'''
+"""
     text = text[:settings_start] + settings_func + text[settings_end:]
 
 # 7) Create/update routes with multiple tasks.
@@ -238,7 +238,7 @@ def whatsapp_contact_update(contact_id: int, name: str = Form(...), phone: str =
 public_start = text.find("@public_app.get('/w/{signed_token}', response_class=HTMLResponse)")
 public_end = text.find("@public_app.get('/w/{signed_token}/file/{file_id}')", public_start)
 if public_start >= 0 and public_end >= 0:
-    public_ticket = r'''@public_app.get('/w/{signed_token}', response_class=HTMLResponse)
+    public_ticket = r"""@public_app.get('/w/{signed_token}', response_class=HTMLResponse)
 def whatsapp_public_ticket(request: Request, signed_token: str, sent: int = 0):
     payload = whatsapp_ticket_payload(signed_token)
     ticket_id = payload['ticket']
@@ -305,7 +305,7 @@ def whatsapp_public_comment(signed_token: str, comment: str = Form(''), needs_ma
     return RedirectResponse(f'/w/{urllib.parse.quote(signed_token, safe="")}?sent=1', status_code=303)
 
 
-'''
+"""
     text = text[:public_start] + public_ticket + text[public_end:]
 
 path.write_text(text, encoding='utf-8')
