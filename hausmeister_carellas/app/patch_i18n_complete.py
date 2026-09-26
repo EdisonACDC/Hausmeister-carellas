@@ -7,7 +7,7 @@ text = path.read_text(encoding='utf-8')
 # its client-side language engine. The structure mirrors the working HVAC Pro:
 # localStorage + data-language buttons + reversible DOM translation + MutationObserver.
 
-text = text.replace("APP_VERSION = '1.5.46'", "APP_VERSION = '1.5.58'", 1)
+text = text.replace("APP_VERSION = '1.5.46'", "APP_VERSION = '1.5.59'", 1)
 
 start = text.find('    hm_i18n = r"""<style>')
 end = text.find("    shell_class = 'admin-shell'", start)
