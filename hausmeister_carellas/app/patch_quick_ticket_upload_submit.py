@@ -128,10 +128,13 @@ if old_sig in text:
 else:
     raise SystemExit('Quick-ticket submit signature not found')
 
-# Replace synchronous translation + insert with idempotent immediate insert.
-old_sync = """    description_it, status_it = translate_text(description, 'it')
-    description_de, status_de = translate_text(description, 'de')
-    translation_status = 'completed' if status_it == 'completed' and status_de == 'completed' else ('failed' if 'failed' in (status_it, status_de) else 'pending')
+# Replace the already-fast pending insert (created by patch_qr_bulk_fast_ticket)
+# with an idempotent insert. This patch runs AFTER patch_qr_bulk_fast_ticket.
+old_sync = """    # Il ticket interno deve essere immediato: nessuna chiamata di rete prima del salvataggio.
+    # Le traduzioni vengono lasciate pending e possono essere completate successivamente.
+    description_it = description
+    description_de = None
+    translation_status = 'pending'
     cur = con.execute('INSERT INTO tickets(zone_id,reporter_name,category,priority,description_original,description_it,description_de,translation_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)', (zone['id'], reporter_name, category, priority, description, description_it, description_de, translation_status, now_iso(), now_iso()))
     ticket_id = cur.lastrowid
 """
@@ -149,13 +152,16 @@ new_sync = """    submission_token = submission_token.strip()
         if previous_id:
             return RedirectResponse(f'../../ticket/{previous_id}', status_code=303)
         raise HTTPException(409, 'Ticket già in creazione. Attendi la conferma.')
-    cur = con.execute('INSERT INTO tickets(zone_id,reporter_name,category,priority,description_original,description_it,description_de,translation_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)', (zone['id'], reporter_name, category, priority, description, description, None, 'pending', now_iso(), now_iso()))
+    description_it = description
+    description_de = None
+    translation_status = 'pending'
+    cur = con.execute('INSERT INTO tickets(zone_id,reporter_name,category,priority,description_original,description_it,description_de,translation_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)', (zone['id'], reporter_name, category, priority, description, description_it, description_de, translation_status, now_iso(), now_iso()))
     ticket_id = cur.lastrowid
 """
 if old_sync in text:
     text = text.replace(old_sync, new_sync, 1)
 else:
-    raise SystemExit('Synchronous quick-ticket translation block not found')
+    raise SystemExit('Fast quick-ticket insert block not found after QR patch')
 
 # Store token -> ticket id before commit/redirect.
 commit_marker = """    con.commit()
