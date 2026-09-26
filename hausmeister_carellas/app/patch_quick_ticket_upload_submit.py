@@ -164,23 +164,30 @@ else:
     raise SystemExit('Fast quick-ticket insert block not found after QR patch')
 
 # Store token -> ticket id before commit/redirect.
-commit_marker = """    con.commit()
-    con.close()
-    direct_url = ticket_notification_url(ticket_id)
-    title = f'{"URGENTE · " if priority == "Urgente" else ""}Ticket {code}'
-    message = f'Zona {zone["name"]} · {category} · Priorità {priority}\n{description[:250]}'
-    notify_home_assistant(message, title, direct_url)
-    return RedirectResponse(f'../../ticket/{ticket_id}', status_code=303)
-"""
+# Do this by locating the quick-ticket function tail instead of matching a fragile
+# multiline string (other patches may change comments/escaping before us).
+func_start = text.find("async def admin_quick_ticket_submit(")
+if func_start < 0:
+    raise SystemExit('Quick-ticket submit function not found')
+func_end = text.find("\n\n@", func_start)
+if func_end < 0:
+    func_end = len(text)
+func_block = text[func_start:func_end]
+
+tail_start = func_block.rfind("    con.commit()")
+redirect_line = "    return RedirectResponse(f'../../ticket/{ticket_id}', status_code=303)"
+tail_return = func_block.find(redirect_line, tail_start)
+if tail_start < 0 or tail_return < 0:
+    raise SystemExit('Quick-ticket final commit/redirect tail not found')
+tail_end = tail_return + len(redirect_line)
+
 commit_new = """    con.execute('UPDATE ticket_submission_tokens SET ticket_id=? WHERE token=?', (ticket_id, submission_token))
     con.commit()
     con.close()
     background_tasks.add_task(_finish_quick_ticket_background, ticket_id, code, zone['name'], category, priority, description)
-    return RedirectResponse(f'../../ticket/{ticket_id}', status_code=303)
-"""
-if commit_marker in text:
-    text = text.replace(commit_marker, commit_new, 1)
-else:
-    raise SystemExit('Quick-ticket commit/notification block not found')
+    return RedirectResponse(f'../../ticket/{ticket_id}', status_code=303)"""
+
+func_block = func_block[:tail_start] + commit_new + func_block[tail_end:]
+text = text[:func_start] + func_block + text[func_end:]
 
 path.write_text(text, encoding='utf-8')
