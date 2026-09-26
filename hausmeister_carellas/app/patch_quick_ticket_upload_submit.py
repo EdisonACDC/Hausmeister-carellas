@@ -31,9 +31,9 @@ new_photos = '''    submit_token = secrets.token_urlsafe(24)
         f"""<div class="ticket-photo-row" id="ticket-photo-row-{i}" {'style="display:none"' if i > 1 else ''}>
           <label>Foto {i} (opzionale)</label>
           <div class="ticket-photo-control">
-            <input class="hm-ticket-photo-input" id="ticket-photo-{i}" type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" onchange="ticketPhotoSelected(this,{i})">
+            <input class="hm-ticket-photo-input" id="ticket-photo-{i}" type="file" name="photo_{i}" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" onchange="ticketPhotoSelected(this,{i})">
             <button class="btn ticket-photo-btn" type="button" onclick="document.getElementById('ticket-photo-{i}').click()">📷 Aggiungi foto</button>
-            <span class="ticket-photo-name" id="ticket-photo-name-{i}">Nessuna foto selezionata</span>
+            <span class="ticket-photo-name" id="ticket-photo-name-{i}">Nessuna foto selezionata</span><img class="ticket-photo-preview" id="ticket-photo-preview-{i}" alt="" style="display:none">
           </div>
         </div>""" for i in range(1, 6)
     )
@@ -41,7 +41,7 @@ new_photos = '''    submit_token = secrets.token_urlsafe(24)
 .ticket-photo-control{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:7px 0 15px}}
 .hm-ticket-photo-input{{position:absolute!important;left:-9999px!important;width:1px!important;height:1px!important;opacity:0!important}}
 .ticket-photo-btn{{min-width:155px}}
-.ticket-photo-name{{color:var(--muted);font-size:14px;overflow-wrap:anywhere}}
+.ticket-photo-name{{color:var(--muted);font-size:14px;overflow-wrap:anywhere}}\n.ticket-photo-preview{{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}}
 #ticket-submit-overlay{{display:none;position:fixed;inset:0;background:#0008;z-index:99999;align-items:center;justify-content:center;padding:20px}}
 #ticket-submit-overlay.show{{display:flex}}
 .ticket-submit-box{{width:min(460px,92vw);background:#fff;border-radius:16px;padding:22px;box-shadow:0 15px 45px #0005}}
@@ -64,7 +64,13 @@ new_photos = '''    submit_token = secrets.token_urlsafe(24)
 <script>
 function ticketPhotoSelected(input,index){{
   const name=document.getElementById('ticket-photo-name-'+index);
+  const preview=document.getElementById('ticket-photo-preview-'+index);
   if(name) name.textContent=(input.files&&input.files.length)?input.files[0].name:'Nessuna foto selezionata';
+  if(preview&&input.files&&input.files.length){{
+    if(preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+    const objectUrl=URL.createObjectURL(input.files[0]);
+    preview.dataset.objectUrl=objectUrl;preview.src=objectUrl;preview.style.display='block';
+  }}
   if(input.files&&input.files.length&&index<5){{
     const next=document.getElementById('ticket-photo-row-'+(index+1));
     if(next) next.style.display='block';
@@ -122,11 +128,18 @@ def _finish_quick_ticket_background(ticket_id: int, code: str, zone_name: str, c
     text = text.replace(route_marker, helper + route_marker, 1)
 
 old_sig = """async def admin_quick_ticket_submit(zone_id: int, reporter_name: str = Form(...), category: str = Form(...), priority: str = Form('Normale'), description: str = Form(...), photos: list[UploadFile] = File(default=[])):"""
-new_sig = """async def admin_quick_ticket_submit(background_tasks: BackgroundTasks, zone_id: int, reporter_name: str = Form(...), category: str = Form(...), priority: str = Form('Normale'), description: str = Form(...), submission_token: str = Form(''), photos: list[UploadFile] = File(default=[])):"""
+new_sig = """async def admin_quick_ticket_submit(background_tasks: BackgroundTasks, zone_id: int, reporter_name: str = Form(...), category: str = Form(...), priority: str = Form('Normale'), description: str = Form(...), submission_token: str = Form(''), photo_1: Optional[UploadFile] = File(None), photo_2: Optional[UploadFile] = File(None), photo_3: Optional[UploadFile] = File(None), photo_4: Optional[UploadFile] = File(None), photo_5: Optional[UploadFile] = File(None)):"""
 if old_sig in text:
     text = text.replace(old_sig, new_sig, 1)
 else:
     raise SystemExit('Quick-ticket submit signature not found')
+
+photo_loop = "    for upload in photos[:5]:"
+photo_loop_new = "    photos = [upload for upload in (photo_1, photo_2, photo_3, photo_4, photo_5) if upload and upload.filename]\n    for upload in photos[:5]:"
+if photo_loop in text:
+    text = text.replace(photo_loop, photo_loop_new, 1)
+else:
+    raise SystemExit('Quick-ticket photo loop not found')
 
 # Replace the already-fast pending insert (created by patch_qr_bulk_fast_ticket)
 # with an idempotent insert. This patch runs AFTER patch_qr_bulk_fast_ticket.
