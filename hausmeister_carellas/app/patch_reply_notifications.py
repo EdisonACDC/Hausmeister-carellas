@@ -222,7 +222,9 @@ def notification_reply(comment_id: int, reply: str = Form(...), open_whatsapp: s
         if link:
             message += f'\n\n📋 Apri il ticket: {link}'
         wa_url = f'https://wa.me/{source["contact_phone"]}?text={urllib.parse.quote(message)}'
-        return RedirectResponse(wa_url, status_code=303)
+        safe_url = esc(wa_url)
+        body = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Apri WhatsApp</title></head><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;padding:24px;text-align:center"><h2>Risposta salvata</h2><p>Sto aprendo WhatsApp fuori da Home Assistant…</p><p><a target="_top" href="' + safe_url + '" style="display:inline-block;background:#16883f;color:#fff;text-decoration:none;padding:14px 20px;border-radius:12px;font-weight:700">Apri WhatsApp</a></p><script>setTimeout(function(){try{window.top.location.href=' + json.dumps(wa_url) + ';}catch(e){window.location.href=' + json.dumps(wa_url) + ';}},120);</script></body></html>'
+        return HTMLResponse(body, headers={'Cache-Control':'no-store'})
 
     return RedirectResponse('../notifications?message=' + urllib.parse.quote('Risposta salvata nel ticket.'), status_code=303)
 
