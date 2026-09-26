@@ -69,7 +69,7 @@ if old_admin_sender in text:
 # 4) Bell helper before page().
 page_marker = "def page(title: str, body: str, public: bool = False, lang: str = 'it', back_url: str = '', close_on_back: bool = False, manager: bool = False):"
 if page_marker in text and "def notification_bell_html" not in text:
-    helper = r\"\"\"
+    helper = r"""
 def unread_technician_reply_count():
     try:
         con = db()
@@ -116,7 +116,7 @@ def notification_bell_html():
 </script>'''
 
 
-\"\"\"
+"""
     text = text.replace(page_marker, helper + page_marker, 1)
 
 # Bell CSS.
@@ -136,7 +136,7 @@ else:
 # 5) Notification center + reply route.
 route_marker = "@admin_app.get('/tickets', response_class=HTMLResponse)"
 if route_marker in text and "@admin_app.get('/notifications'" not in text:
-    routes = r\"\"\"
+    routes = r"""
 @admin_app.get('/notifications/count')
 def notification_count():
     return {'count': unread_technician_reply_count()}
@@ -227,7 +227,7 @@ def notification_reply(comment_id: int, reply: str = Form(...), open_whatsapp: s
     return RedirectResponse('../notifications?message=' + urllib.parse.quote('Risposta salvata nel ticket.'), status_code=303)
 
 
-\"\"\"
+"""
     text = text.replace(route_marker, routes + route_marker, 1)
 else:
     raise SystemExit('Notification routes insertion marker not found')
