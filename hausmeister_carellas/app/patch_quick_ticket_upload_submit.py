@@ -88,8 +88,8 @@ else:
     raise SystemExit('Quick-ticket photo form pattern not found')
 
 # Do not let the generic i18n file-input enhancer hide/replace our explicit ticket controls.
-old_setup = "document.querySelectorAll('input[type="file"]').forEach(input=>{"
-new_setup = "document.querySelectorAll('input[type="file"]:not(.hm-ticket-photo-input)').forEach(input=>{"
+old_setup = """document.querySelectorAll('input[type="file"]').forEach(input=>{"""
+new_setup = """document.querySelectorAll('input[type="file"]:not(.hm-ticket-photo-input)').forEach(input=>{"""
 if old_setup in text:
     text = text.replace(old_setup, new_setup, 1)
 
