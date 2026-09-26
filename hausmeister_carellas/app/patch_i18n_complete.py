@@ -7,7 +7,7 @@ text = path.read_text(encoding='utf-8')
 # its client-side language engine. The structure mirrors the working HVAC Pro:
 # localStorage + data-language buttons + reversible DOM translation + MutationObserver.
 
-text = text.replace("APP_VERSION = '1.5.46'", "APP_VERSION = '1.5.47'", 1)
+text = text.replace("APP_VERSION = '1.5.46'", "APP_VERSION = '1.5.54'", 1)
 
 start = text.find('    hm_i18n = r"""<style>')
 end = text.find("    shell_class = 'admin-shell'", start)
@@ -126,7 +126,7 @@ new_block = r'''    hm_i18n = r"""<style>
     "Tecnici suggeriti per:":"Vorgeschlagene Techniker für:","Invia a tecnico":"An Techniker senden","Apri WhatsApp":"WhatsApp öffnen",
     "Apertura WhatsApp…":"WhatsApp wird geöffnet…","Se WhatsApp non si apre automaticamente, premi il pulsante.":"Falls WhatsApp nicht automatisch öffnet, drücke die Schaltfläche.",
     "Problema":"Problem","Intervento":"Einsatz","Inviato a":"Gesendet an","Nessun tecnico configurato.":"Kein Techniker konfiguriert.",
-    "Scegli file":"Datei auswählen","Nessun file selezionato":"Keine Datei ausgewählt","pz":"Stk.","conf.":"Pkg."
+    "Aggiungi foto":"Foto hinzufügen","Scegli file":"Datei auswählen","Nessun file selezionato":"Keine Datei ausgewählt","pz":"Stk.","conf.":"Pkg."
   };
 
   const RO={
@@ -210,7 +210,7 @@ new_block = r'''    hm_i18n = r"""<style>
     "Aggiungi contatto":"Adaugă contact","Aggiungi tecnico":"Adaugă tehnician","Nome / Ditta":"Nume / Firmă",
     "Numero WhatsApp":"Număr WhatsApp","Tecnici suggeriti per:":"Tehnicieni sugerați pentru:","Invia a tecnico":"Trimite tehnicianului",
     "Apri WhatsApp":"Deschide WhatsApp","Apertura WhatsApp…":"Se deschide WhatsApp…","Problema":"Problemă","Intervento":"Intervenție",
-    "Inviato a":"Trimis către","Nessun tecnico configurato.":"Niciun tehnician configurat.","Scegli file":"Alege fișier",
+    "Inviato a":"Trimis către","Nessun tecnico configurato.":"Niciun tehnician configurat.","Aggiungi foto":"Adaugă fotografie","Scegli file":"Alege fișier",
     "Nessun file selezionato":"Niciun fișier selectat","pz":"buc.","conf.":"pachet"
   };
 
@@ -356,10 +356,22 @@ new_block = r'''    hm_i18n = r"""<style>
       input.dataset.hmFileReady='1';
       input.style.position='absolute';input.style.opacity='0';input.style.width='1px';input.style.height='1px';
       const wrap=document.createElement('div');wrap.className='hm-file-wrap';
-      const button=document.createElement('button');button.type='button';button.className='hm-file-button';button._hmBaseText='Scegli file';
-      const name=document.createElement('span');name.className='hm-file-name';name._hmBaseText='Nessun file selezionato';
+      const button=document.createElement('button');button.type='button';button.className='hm-file-button';
+      button.textContent=translateStatic('📷 Aggiungi foto',language);
+      if(button.firstChild) button.firstChild._hmBaseText='📷 Aggiungi foto';
+      const name=document.createElement('span');name.className='hm-file-name';
+      name.textContent=translateStatic('Nessun file selezionato',language);
+      if(name.firstChild) name.firstChild._hmBaseText='Nessun file selezionato';
       button.addEventListener('click',()=>input.click());
-      input.addEventListener('change',()=>{name.textContent=input.files&&input.files.length?[...input.files].map(f=>f.name).join(', '):translateStatic(name._hmBaseText,language)});
+      input.addEventListener('change',()=>{
+        if(input.files&&input.files.length){
+          name.textContent=[...input.files].map(f=>f.name).join(', ');
+          if(name.firstChild) name.firstChild._hmBaseText=name.textContent;
+        }else{
+          name.textContent=translateStatic('Nessun file selezionato',language);
+          if(name.firstChild) name.firstChild._hmBaseText='Nessun file selezionato';
+        }
+      });
       wrap.append(button,name);input.insertAdjacentElement('afterend',wrap);
     });
   }
