@@ -23,19 +23,19 @@ if db_marker in text and "ticket_submission_tokens" not in text:
 
 # Replace the internal quick-ticket photo inputs with explicit "Aggiungi foto" controls,
 # plus a visible loading overlay/progress bar and one-shot submit protection.
-old_photos = """    photos = ''.join(f'<label>Foto {i} (opzionale)</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif">' for i in range(1, 6))
+old_photos = '''    photos = ''.join(f'<label>Foto {i} (opzionale)</label><input type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif">' for i in range(1, 6))
     body = f"""{inactive_notice}<div class="card" style="max-width:760px;margin:0 auto"><h2>Nuovo ticket</h2><p><b>Zona:</b> {esc(zone['name'])}</p><p class="muted">Accesso interno Home Assistant: nessuna password richiesta.</p><form method="post" enctype="multipart/form-data" action="{zone_id}/submit"><label>Nome e cognome *</label><input name="reporter_name" maxlength="120" required placeholder="Inserisci nome e cognome"><label>Tipo di guasto *</label><select name="category" required>{category_options}</select><label>Priorità</label><select name="priority">{priority_options}</select><label>Descrizione *</label><textarea name="description" maxlength="4000" rows="6" required placeholder="Descrivi il problema nel dettaglio"></textarea>{photos}<button type="submit">➤ Crea ticket</button></form></div>"""
-"""
-new_photos = """    submit_token = secrets.token_urlsafe(24)
+'''
+new_photos = '''    submit_token = secrets.token_urlsafe(24)
     photos = ''.join(
-        f'''<div class="ticket-photo-row" id="ticket-photo-row-{i}" {'style="display:none"' if i > 1 else ''}>
+        f"""<div class="ticket-photo-row" id="ticket-photo-row-{i}" {'style="display:none"' if i > 1 else ''}>
           <label>Foto {i} (opzionale)</label>
           <div class="ticket-photo-control">
             <input class="hm-ticket-photo-input" id="ticket-photo-{i}" type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" onchange="ticketPhotoSelected(this,{i})">
             <button class="btn ticket-photo-btn" type="button" onclick="document.getElementById('ticket-photo-{i}').click()">📷 Aggiungi foto</button>
             <span class="ticket-photo-name" id="ticket-photo-name-{i}">Nessuna foto selezionata</span>
           </div>
-        </div>''' for i in range(1, 6)
+        </div>""" for i in range(1, 6)
     )
     body = f"""{inactive_notice}<style>
 .ticket-photo-control{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:7px 0 15px}}
@@ -81,7 +81,7 @@ function prepareQuickTicketSubmit(form){{
   return true;
 }}
 </script>"""
-"""
+'''
 if old_photos in text:
     text = text.replace(old_photos, new_photos, 1)
 else:
