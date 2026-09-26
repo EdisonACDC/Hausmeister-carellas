@@ -7,7 +7,7 @@ text = path.read_text(encoding='utf-8')
 # its client-side language engine. The structure mirrors the working HVAC Pro:
 # localStorage + data-language buttons + reversible DOM translation + MutationObserver.
 
-text = text.replace("APP_VERSION = '1.5.46'", "APP_VERSION = '1.5.54'", 1)
+text = text.replace("APP_VERSION = '1.5.46'", "APP_VERSION = '1.5.58'", 1)
 
 start = text.find('    hm_i18n = r"""<style>')
 end = text.find("    shell_class = 'admin-shell'", start)
@@ -126,7 +126,7 @@ new_block = r'''    hm_i18n = r"""<style>
     "Tecnici suggeriti per:":"Vorgeschlagene Techniker für:","Invia a tecnico":"An Techniker senden","Apri WhatsApp":"WhatsApp öffnen",
     "Apertura WhatsApp…":"WhatsApp wird geöffnet…","Se WhatsApp non si apre automaticamente, premi il pulsante.":"Falls WhatsApp nicht automatisch öffnet, drücke die Schaltfläche.",
     "Problema":"Problem","Intervento":"Einsatz","Inviato a":"Gesendet an","Nessun tecnico configurato.":"Kein Techniker konfiguriert.",
-    "Aggiungi foto":"Foto hinzufügen","Scegli file":"Datei auswählen","Nessun file selezionato":"Keine Datei ausgewählt","pz":"Stk.","conf.":"Pkg."
+    "Aggiungi foto":"Foto hinzufügen","Scegli file":"Datei auswählen","Nessun file selezionato":"Keine Datei ausgewählt","Notifiche":"Benachrichtigungen","Risposte ai ticket":"Ticket-Antworten","Qui trovi le risposte dei tecnici e le richieste di materiale.":"Hier findest du Antworten der Techniker und Materialanforderungen.","Risposta":"Antwort","Scrivi la risposta al tecnico":"Antwort an den Techniker schreiben","Apri anche WhatsApp con la risposta pronta":"WhatsApp ebenfalls mit vorbereiteter Antwort öffnen","Invia risposta":"Antwort senden","Tua risposta":"Deine Antwort","Risposta tecnico":"Technikerantwort","Nessuna risposta ricevuta.":"Keine Antworten erhalten.","Serve materiale":"Material erforderlich","Materiale necessario":"Benötigtes Material","Risposta salvata nel ticket.":"Antwort im Ticket gespeichert.","pz":"Stk.","conf.":"Pkg."
   };
 
   const RO={
@@ -211,7 +211,7 @@ new_block = r'''    hm_i18n = r"""<style>
     "Numero WhatsApp":"Număr WhatsApp","Tecnici suggeriti per:":"Tehnicieni sugerați pentru:","Invia a tecnico":"Trimite tehnicianului",
     "Apri WhatsApp":"Deschide WhatsApp","Apertura WhatsApp…":"Se deschide WhatsApp…","Problema":"Problemă","Intervento":"Intervenție",
     "Inviato a":"Trimis către","Nessun tecnico configurato.":"Niciun tehnician configurat.","Aggiungi foto":"Adaugă fotografie","Scegli file":"Alege fișier",
-    "Nessun file selezionato":"Niciun fișier selectat","pz":"buc.","conf.":"pachet"
+    "Nessun file selezionato":"Niciun fișier selectat","Notifiche":"Notificări","Risposte ai ticket":"Răspunsuri la tichete","Qui trovi le risposte dei tecnici e le richieste di materiale.":"Aici găsești răspunsurile tehnicienilor și cererile de materiale.","Risposta":"Răspuns","Scrivi la risposta al tecnico":"Scrie răspunsul pentru tehnician","Apri anche WhatsApp con la risposta pronta":"Deschide și WhatsApp cu răspunsul pregătit","Invia risposta":"Trimite răspunsul","Tua risposta":"Răspunsul tău","Risposta tecnico":"Răspuns tehnician","Nessuna risposta ricevuta.":"Niciun răspuns primit.","Serve materiale":"Este necesar material","Materiale necessario":"Material necesar","Risposta salvata nel ticket.":"Răspuns salvat în tichet.","pz":"buc.","conf.":"pachet"
   };
 
   const reverse={};
